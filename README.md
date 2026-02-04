@@ -211,6 +211,25 @@ gemini = AcpClient(command="gemini", args=["--experimental-acp"])
 ts_claude = AcpClient(command="npx", args=["@zed-industries/claude-code-acp"])
 ```
 
+### File Operation Handlers
+
+AcpClient supports intercepting file read/write operations for security or custom handling:
+
+```python
+@client.on_file_read
+async def handle_read(path: str) -> str | None:
+    """Intercept file reads. Return content to override, or None to proceed."""
+    print(f"📖 Reading: {path}")
+    return None  # Proceed with normal read
+
+@client.on_file_write
+async def handle_write(path: str, content: str) -> bool:
+    """Intercept file writes. Return True to allow, False to block."""
+    print(f"📝 Writing: {path}")
+    response = input("Allow write? [y/N]: ")
+    return response.lower() == "y"
+```
+
 ### AcpClient vs ClaudeClient
 
 | Feature | `ClaudeClient` | `AcpClient` |

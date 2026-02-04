@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Coroutine
 
 from acp.client.connection import ClientSideConnection
@@ -41,6 +42,9 @@ class AcpClientEvents:
     on_permission: Callable[[str, dict, list], Coroutine[Any, Any, str]] | None = None
     on_error: Callable[[Exception], Coroutine[Any, Any, None]] | None = None
     on_complete: Callable[[], Coroutine[Any, Any, None]] | None = None
+    # File operation handlers (optional - if not set, operations proceed automatically)
+    on_file_read: Callable[[str], Coroutine[Any, Any, str | None]] | None = None
+    on_file_write: Callable[[str, str], Coroutine[Any, Any, bool]] | None = None
 
 
 class AcpClient:
@@ -135,6 +139,32 @@ class AcpClient:
     def on_complete(self, func: Callable[[], Coroutine[Any, Any, None]]):
         """Register handler for completion."""
         self.events.on_complete = func
+        return func
+
+    def on_file_read(self, func: Callable[[str], Coroutine[Any, Any, str | None]]):
+        """
+        Register handler for file read operations.
+
+        The handler receives (path) and can return:
+        - str: Override the file content with this value
+        - None: Proceed with normal file reading
+
+        This allows intercepting file reads for security or custom handling.
+        """
+        self.events.on_file_read = func
+        return func
+
+    def on_file_write(self, func: Callable[[str, str], Coroutine[Any, Any, bool]]):
+        """
+        Register handler for file write operations.
+
+        The handler receives (path, content) and should return:
+        - True: Allow the write to proceed
+        - False: Block the write
+
+        This allows intercepting file writes for security or confirmation prompts.
+        """
+        self.events.on_file_write = func
         return func
 
     # --- Connection management ---
@@ -331,13 +361,75 @@ class AcpClient:
                     outcome={"outcome": "selected", "option_id": selected_id}
                 )
 
-            async def write_text_file(self, **kwargs) -> None:
-                """Handle write file requests (stub)."""
-                pass
+            async def write_text_file(
+                self,
+                path: str,
+                content: str,
+                **kwargs,
+            ) -> None:
+                """
+                Handle write file requests from the agent.
 
-            async def read_text_file(self, **kwargs) -> dict:
-                """Handle read file requests (stub)."""
-                return {"content": ""}
+                The agent requests the client to write a file to disk.
+                This enables the agent to create/modify files in the user's filesystem.
+
+                Args:
+                    path: The file path to write to.
+                    content: The content to write.
+                """
+                # Check if handler wants to intercept/block the write
+                if client.events.on_file_write:
+                    allowed = await client.events.on_file_write(path, content)
+                    if not allowed:
+                        logger.info(f"File write blocked by handler: {path}")
+                        return
+
+                try:
+                    file_path = Path(path)
+                    # Create parent directories if they don't exist
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    # Write the file
+                    file_path.write_text(content, encoding="utf-8")
+                    logger.debug(f"Wrote file: {path}")
+                except Exception as e:
+                    logger.error(f"Failed to write file {path}: {e}")
+                    raise
+
+            async def read_text_file(
+                self,
+                path: str,
+                **kwargs,
+            ) -> dict:
+                """
+                Handle read file requests from the agent.
+
+                The agent requests the client to read a file from disk.
+                This enables the agent to access files in the user's filesystem.
+
+                Args:
+                    path: The file path to read.
+
+                Returns:
+                    A dict with 'content' key containing the file content.
+                """
+                # Check if handler wants to override the content
+                if client.events.on_file_read:
+                    override = await client.events.on_file_read(path)
+                    if override is not None:
+                        logger.debug(f"File read overridden by handler: {path}")
+                        return {"content": override}
+
+                try:
+                    file_path = Path(path)
+                    if not file_path.exists():
+                        logger.warning(f"File not found: {path}")
+                        return {"content": "", "error": f"File not found: {path}"}
+                    content = file_path.read_text(encoding="utf-8")
+                    logger.debug(f"Read file: {path} ({len(content)} chars)")
+                    return {"content": content}
+                except Exception as e:
+                    logger.error(f"Failed to read file {path}: {e}")
+                    return {"content": "", "error": str(e)}
 
             async def create_terminal(self, **kwargs) -> dict:
                 """Handle terminal creation (stub)."""

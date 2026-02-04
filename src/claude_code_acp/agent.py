@@ -73,6 +73,7 @@ class Session:
     permission_mode: PermissionMode = "default"
     cancelled: bool = False
     tool_use_cache: dict[str, ToolUseBlock] = field(default_factory=dict)
+    mcp_servers: dict[str, Any] = field(default_factory=dict)
 
 
 class ClaudeAcpAgent(Agent):
@@ -141,12 +142,16 @@ class ClaudeAcpAgent(Agent):
         """Create a new Claude session."""
         session_id = str(uuid4())
 
+        # Convert ACP MCP servers to Claude SDK format
+        sdk_mcp_servers = self._convert_mcp_servers(mcp_servers)
+
         self._sessions[session_id] = Session(
             session_id=session_id,
             cwd=cwd,
+            mcp_servers=sdk_mcp_servers,
         )
 
-        logger.info(f"New session created: {session_id} in {cwd}")
+        logger.info(f"New session created: {session_id} in {cwd} with {len(sdk_mcp_servers)} MCP servers")
 
         return NewSessionResponse(
             session_id=session_id,
@@ -224,11 +229,12 @@ class ClaudeAcpAgent(Agent):
 
         logger.info(f"Prompt for session {session_id}: {prompt_text[:100]}...")
 
-        # Build Claude options with permission callback for bidirectional communication
+        # Build Claude options with MCP servers and permission callback
         options = ClaudeAgentOptions(
             cwd=session.cwd,
             permission_mode=session.permission_mode,
             include_partial_messages=True,
+            mcp_servers=session.mcp_servers if session.mcp_servers else {},
         )
 
         # Add permission callback if not bypassing permissions
@@ -237,6 +243,7 @@ class ClaudeAcpAgent(Agent):
                 cwd=session.cwd,
                 permission_mode=session.permission_mode,
                 include_partial_messages=True,
+                mcp_servers=session.mcp_servers if session.mcp_servers else {},
                 can_use_tool=self._create_permission_handler(session_id),
             )
 
@@ -299,6 +306,68 @@ class ClaudeAcpAgent(Agent):
                 parts.append(block.text)
 
         return "\n".join(parts)
+
+    def _convert_mcp_servers(
+        self,
+        acp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
+    ) -> dict[str, Any]:
+        """Convert ACP MCP server configs to Claude SDK format."""
+        sdk_servers: dict[str, Any] = {}
+
+        for i, server in enumerate(acp_servers):
+            if isinstance(server, dict):
+                server_type = server.get("type")
+                name = server.get("name", f"mcp-server-{i}")
+
+                if server_type == "stdio":
+                    # Stdio MCP server
+                    sdk_servers[name] = {
+                        "type": "stdio",
+                        "command": server.get("command", ""),
+                        "args": server.get("args", []),
+                        "env": server.get("env", {}),
+                    }
+                elif server_type == "sse":
+                    # SSE MCP server
+                    sdk_servers[name] = {
+                        "type": "sse",
+                        "url": server.get("url", ""),
+                    }
+                elif server_type == "http":
+                    # HTTP MCP server
+                    sdk_servers[name] = {
+                        "type": "http",
+                        "url": server.get("url", ""),
+                    }
+
+                logger.info(f"Added MCP server: {name} ({server_type})")
+
+            elif hasattr(server, "type"):
+                # Pydantic model
+                name = getattr(server, "name", f"mcp-server-{i}")
+                server_type = server.type
+
+                if server_type == "stdio":
+                    sdk_servers[name] = {
+                        "type": "stdio",
+                        "command": getattr(server, "command", ""),
+                        "args": getattr(server, "args", []),
+                        "env": getattr(server, "env", {}),
+                    }
+                elif server_type == "sse":
+                    sdk_servers[name] = {
+                        "type": "sse",
+                        "url": getattr(server, "url", ""),
+                    }
+                elif server_type == "http":
+                    sdk_servers[name] = {
+                        "type": "http",
+                        "url": getattr(server, "url", ""),
+                    }
+
+                logger.info(f"Added MCP server: {name} ({server_type})")
+
+        return sdk_servers
 
     async def _handle_message(self, session_id: str, message: Message) -> None:
         """Convert and emit a Claude message as ACP updates."""
