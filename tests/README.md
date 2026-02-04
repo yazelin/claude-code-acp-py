@@ -388,3 +388,48 @@ await session.send({"prompt": "Hello!"})
 | [test_copilot_sdk_via_proxy.py](./test_copilot_sdk_via_proxy.py) | Gemini | 1.3s | 6.3s | ✅ PASS |
 | [test_copilot_sdk_via_proxy_claude.py](./test_copilot_sdk_via_proxy_claude.py) | claude-code-acp | 1.5s | 6.4s | ✅ PASS |
 | [test_copilot_sdk_via_proxy_copilot.py](./test_copilot_sdk_via_proxy_copilot.py) | Copilot CLI | 2.2s | 12.8s | ✅ PASS |
+
+### Tool Use 測試結果
+
+**測試日期**: 2025-02-05
+
+透過 ACP Proxy 測試各後端的 Tool Use 功能：
+
+| Backend | Tool Use | 時間 | 結果 | 備註 |
+|---------|----------|------|------|------|
+| claude-code-acp | ✅ 成功 | ~6s | 執行 `ls` 成功 | 穩定快速 |
+| Gemini | ⚠️ 部分成功 | ~82s | `ls` 失敗，fallback 到 `list_directory` | 非常慢 |
+| Copilot | - | - | 未詳細測試 | - |
+
+#### Gemini Tool Use 詳細分析
+
+直接使用 AcpClient 測試 Gemini 的 Tool Use：
+
+```
+[1] 連接 Gemini... ✅ (14.7s)
+[2] 發送 prompt (要求執行 ls)...
+    🤔 Thinking... (多次思考)
+    🔐 Permission: ls -F -> auto approve
+    ✅ Tool End: failed  ← Shell 指令失敗
+    🔐 Permission: ls -F -> auto approve
+    ✅ Tool End: failed  ← 再次失敗
+    🔧 Tool Start: list_directory ← 自動切換工具
+    ✅ Tool End: completed
+    ✅ Complete! (81.7s)
+```
+
+**發現**:
+1. Gemini 的 shell tool 執行 `ls` 指令會失敗
+2. Gemini 會自動 fallback 到 `list_directory` 工具
+3. 整個過程非常慢 (~82 秒)
+4. 透過 Copilot SDK Proxy 會因 SDK 內部 timeout 而失敗
+
+#### 模型身份測試
+
+詢問各後端 "What language model are you?"：
+
+| Backend | 回答 |
+|---------|------|
+| Gemini | "I am Gemini, a large language model built by Google." |
+| Claude | "I am Claude, an AI assistant made by Anthropic..." |
+| Copilot | (空回應) |
