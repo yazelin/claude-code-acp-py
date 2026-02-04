@@ -306,6 +306,34 @@ Copilot SDK 啟動 CLI 時會自動傳送特定的 flags：
 Unknown arguments: headless, log-level, logLevel, stdio
 ```
 
+### Node.js SDK 的 cliPath 參數無效
+
+**測試日期**: 2025-02-05
+
+測試 Node.js `@github/copilot-sdk` 的 `cliPath` 參數：
+
+```javascript
+// 嘗試指定使用 Gemini CLI
+const session = await client.createSession({
+  model: "gemini-2.0-flash",
+  cliPath: "gemini",
+  cliArgs: "--experimental-acp"
+});
+```
+
+**測試結果**（問模型 "What is your model name?"）：
+
+| 設定 | 回應 |
+|------|------|
+| 預設 `{}` | GPT-4 |
+| `model: "gemini-2.0-flash"` | GPT-4 |
+| `cliPath: "gemini"` | GPT-4 |
+| `cliPath: "claude-code-acp"` | GPT-4 |
+
+**結論**: `cliPath` 和 `model` 參數都被忽略！SDK 始終連接到 Copilot CLI (GPT-4)。
+
+即使 `copilot-sdk-demo` 範例寫了 `cliPath: "gemini"`，實際上還是使用 Copilot CLI。
+
 ### 結論
 
 ```
@@ -433,3 +461,65 @@ await session.send({"prompt": "Hello!"})
 | Gemini | "I am Gemini, a large language model built by Google." |
 | Claude | "I am Claude, an AI assistant made by Anthropic..." |
 | Copilot | (空回應) |
+
+#### Model 參數修復
+
+**修復日期**: 2025-02-05
+
+**問題描述**:
+透過 Copilot SDK 指定 `model: "opus"` 時，實際回應的是 Claude 3.5 Sonnet 而非 Opus。
+
+**原因分析**:
+1. Copilot SDK 將 `model` 參數傳給 Proxy
+2. Proxy 的 `create_session` 接收 `model` 但只存儲，沒有轉發
+3. `claude-code-acp` Agent 的 `set_session_model` 只是 stub，沒有實際功能
+4. `ClaudeAgentOptions` 創建時沒有傳入 `model` 參數
+
+**修復內容**:
+
+| 檔案 | 修改 |
+|------|------|
+| `agent.py` | Session 新增 `model` 欄位 |
+| `agent.py` | `set_session_model` 實際儲存 model |
+| `agent.py` | `ClaudeAgentOptions` 傳入 `model=session.model` |
+| `acp_client.py` | 新增 `set_model()` 方法 |
+| `session_manager.py` | 建立 session 後呼叫 `set_model` |
+
+**正確流程**:
+```
+Copilot SDK (model: "opus")
+    ↓ session.create
+ACP Proxy
+    ↓ set_session_model("opus")
+claude-code-acp Agent
+    ↓ session.model = "opus"
+Claude Agent SDK
+    ↓ ClaudeAgentOptions(model="opus")
+Claude Opus 4.5 ✅
+```
+
+**測試結果**:
+
+| 測試 | 修復前 | 修復後 |
+|------|--------|--------|
+| `model: "opus"` | Claude 3.5 Sonnet | **Claude Opus 4.5** ✅ |
+| 回應內容 | "我是 Claude 3.5 Sonnet..." | "I am Claude Opus 4.5 (claude-4opus-20250415)..." |
+
+**範例程式**:
+```python
+# examples/copilot_sdk_via_proxy.py
+os.environ["ACP_PROXY_BACKEND"] = "claude-code-acp"
+
+client = CopilotClient({"cli_path": "copilot-acp-proxy"})
+await client.start()
+
+session = await client.create_session({"model": "opus"})  # ← 現在有效！
+```
+
+**可用 Model 參數**:
+
+| Backend | 可用值 |
+|---------|--------|
+| claude-code-acp | `opus`, `sonnet`, `haiku` 或完整 ID |
+| Gemini | `gemini-2.5-pro`, `gemini-2.5-flash`, etc. |
+| Copilot | `gpt-4`, `gpt-4o`, etc. |
