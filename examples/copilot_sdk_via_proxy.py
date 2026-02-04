@@ -55,11 +55,12 @@ async def main():
     print("    ✅ 成功")
 
     # 根據後端選擇模型
-    # 注意: claude-code-acp 只支援 'opus' 和 'sonnet' 作為 alias
+    # 注意: 只有 claude-code-acp 支援 model 切換 (opus/sonnet)
+    # Gemini 和 Copilot 的 ACP 不支援 set_session_model，會忽略此參數
     model_map = {
-        "gemini": "gemini-2.5-flash",
-        "claude-code-acp": "sonnet",  # 或 "opus"
-        "copilot": "gpt-4o",
+        "gemini": "gemini-2.0-flash",  # 會被忽略
+        "claude-code-acp": "sonnet",   # 有效: opus 或 sonnet
+        "copilot": "gpt-4o",           # 會被忽略
     }
     model = model_map.get(backend, "default")
 
