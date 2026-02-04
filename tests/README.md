@@ -27,6 +27,9 @@ Copilot SDK (Python): 0.1.21
 | Copilot SDK → Gemini ACP | ❌ FAIL | 協議不相容 |
 | [Copilot SDK + BYOK → Gemini API](./test_copilot_sdk_byok_gemini.py) | ✅ PASS | HTTP API (非 ACP) |
 | [Copilot SDK + BYOK → Anthropic API](./test_copilot_sdk_byok_anthropic.py) | 🔄 待測試 | 需 ANTHROPIC_API_KEY |
+| **[Copilot SDK → ACP Proxy → Gemini](./test_copilot_sdk_via_proxy.py)** | ✅ PASS | **突破！透過 Proxy 連接** |
+| **[Copilot SDK → ACP Proxy → claude-code-acp](./test_copilot_sdk_via_proxy_claude.py)** | ✅ PASS | **Proxy 連接 Claude** |
+| **[Copilot SDK → ACP Proxy → Copilot CLI](./test_copilot_sdk_via_proxy_copilot.py)** | ✅ PASS | **架構完整性驗證** |
 
 ## 執行測試
 
@@ -310,4 +313,78 @@ Copilot SDK = 專為 Copilot CLI 設計的專用 SDK
 AcpClient   = 通用 ACP Client (可連接任何 ACP Server)
 ```
 
-Copilot SDK 雖然底層使用 JSON-RPC，但它不是一個通用的 ACP client。如果需要連接不同的 ACP server (Gemini、Claude 等)，應該使用通用的 ACP client 實作。
+Copilot SDK 雖然底層使用 JSON-RPC，但它不是一個通用的 ACP client。
+
+**但是**，我們實作了 **ACP Proxy** 來解決這個問題！
+
+---
+
+## 🎉 突破：ACP Proxy
+
+### 什麼是 ACP Proxy?
+
+我們實作的 `copilot-acp-proxy` 可以讓 Copilot SDK 連接到任何 ACP backend！
+
+### 架構
+
+```
+┌─────────────┐   Copilot Protocol   ┌─────────────────┐   Standard ACP   ┌─────────────┐
+│ Copilot SDK │ ──────────────────── │ copilot-acp-    │ ──────────────── │ Backend CLI │
+│             │   (JSON-RPC 2.0)     │ proxy           │  (JSON-RPC 2.0)  │ gemini/     │
+│             │   Content-Length     │                 │                   │ claude-code │
+└─────────────┘                      └─────────────────┘                   └─────────────┘
+```
+
+### 測試結果
+
+**測試日期**: 2025-02-05
+
+| 測試項目 | 結果 | 耗時 |
+|---------|------|------|
+| Copilot SDK → Proxy 連接 | ✅ | ~1.3s |
+| Proxy → Gemini CLI 連接 | ✅ | - |
+| 簡單 Prompt | ✅ | ~6.3s |
+
+**回應內容**: "Hello from Gemini via Proxy!"
+
+### 使用方式
+
+```python
+import os
+from copilot import CopilotClient
+
+# 設定後端 (gemini, claude-code-acp, etc.)
+os.environ["ACP_PROXY_BACKEND"] = "gemini"
+
+# 使用 Copilot SDK
+client = CopilotClient({"cli_path": "copilot-acp-proxy"})
+await client.start()
+
+session = await client.create_session({"model": "gemini-2.0-flash"})
+session.on(lambda event: print(event.type, event.data))
+await session.send({"prompt": "Hello!"})
+```
+
+### 技術細節
+
+1. **協議版本**: Protocol Version 2 (配合 Copilot SDK 0.1.x)
+2. **訊息格式**: LSP-style Content-Length headers
+3. **Event 欄位**: `id` (UUID), `type`, `timestamp` (ISO 8601), `data`
+
+### 支援的後端
+
+| Backend | 環境變數設定 | 狀態 | 耗時 |
+|---------|-------------|------|------|
+| Gemini CLI | `ACP_PROXY_BACKEND=gemini` | ✅ 已測試 | ~6.3s |
+| claude-code-acp | `ACP_PROXY_BACKEND=claude-code-acp` | ✅ 已測試 | ~6.4s |
+| Copilot CLI | `ACP_PROXY_BACKEND=copilot` | ✅ 已測試 | ~12.8s |
+
+### ACP Proxy 完整測試結果
+
+**測試日期**: 2025-02-05
+
+| 測試項目 | Backend | 連接時間 | Prompt 時間 | 結果 |
+|---------|---------|---------|-------------|------|
+| [test_copilot_sdk_via_proxy.py](./test_copilot_sdk_via_proxy.py) | Gemini | 1.3s | 6.3s | ✅ PASS |
+| [test_copilot_sdk_via_proxy_claude.py](./test_copilot_sdk_via_proxy_claude.py) | claude-code-acp | 1.5s | 6.4s | ✅ PASS |
+| [test_copilot_sdk_via_proxy_copilot.py](./test_copilot_sdk_via_proxy_copilot.py) | Copilot CLI | 2.2s | 12.8s | ✅ PASS |
