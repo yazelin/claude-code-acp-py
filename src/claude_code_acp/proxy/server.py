@@ -360,6 +360,8 @@ class AcpProxyServer:
         cwd = params.get("workingDirectory", self.cwd)
         mcp_servers = params.get("mcpServers")
 
+        logger.debug(f"session.create params: {params}")
+
         # Create event callback
         async def event_callback(event: dict):
             await self._send_session_event(session.session_id, event)

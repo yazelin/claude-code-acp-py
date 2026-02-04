@@ -27,7 +27,8 @@ __all__ = [
 async def run() -> None:
     """Run the Claude ACP agent."""
     from acp import run_agent
-    await run_agent(ClaudeAcpAgent())
+    # Enable unstable protocol to support set_session_model
+    await run_agent(ClaudeAcpAgent(), use_unstable_protocol=True)
 
 
 def main() -> None:

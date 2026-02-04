@@ -120,6 +120,8 @@ class AcpClient:
         self._session_id: str | None = None
         self._text_buffer = ""
         self._initialized = False
+        # Model to set after session is created
+        self._pending_model: str | None = None
         # Terminal management
         self._terminals: dict[str, TerminalProcess] = {}
         self._terminal_counter = 0
@@ -328,6 +330,20 @@ class AcpClient:
             mcp_servers=mcp_servers_acp,
         )
         self._session_id = response.session_id
+
+        # Apply pending model if one was set before session creation
+        if self._pending_model:
+            try:
+                await self._connection.set_session_model(
+                    model_id=self._pending_model,
+                    session_id=self._session_id,
+                )
+                logger.info(f"Applied pending model '{self._pending_model}' to session {self._session_id}")
+            except Exception as e:
+                logger.warning(f"Failed to apply pending model: {e}")
+            finally:
+                self._pending_model = None
+
         return self._session_id
 
     async def prompt(self, text: str) -> str:
@@ -382,14 +398,22 @@ class AcpClient:
         )
 
     async def set_model(self, model: str) -> None:
-        """Set the model for the current session."""
+        """Set the model for the current session.
+
+        If no session exists yet, the model will be stored and applied
+        when the session is created.
+        """
         if not self._connection or not self._session_id:
-            raise RuntimeError("No active session")
+            # Store for later - will be applied when session is created
+            self._pending_model = model
+            logger.info(f"Model '{model}' stored, will be applied when session is created")
+            return
 
         await self._connection.set_session_model(
             model_id=model,
             session_id=self._session_id,
         )
+        logger.info(f"Model set to '{model}'")
 
     # --- Internal handlers ---
 

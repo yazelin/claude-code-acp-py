@@ -31,12 +31,22 @@ def setup_logging(log_level: str) -> None:
     }
     level = level_map.get(log_level.lower(), logging.INFO)
 
-    # Log to stderr to avoid interfering with stdio communication
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
+    # Log to file for debugging (stderr may be captured by SDK)
+    log_file = os.environ.get("ACP_PROXY_LOG_FILE")
+    if log_file:
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            filename=log_file,
+            filemode="a",
+        )
+    else:
+        # Log to stderr to avoid interfering with stdio communication
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            stream=sys.stderr,
+        )
 
 
 def main() -> None:
