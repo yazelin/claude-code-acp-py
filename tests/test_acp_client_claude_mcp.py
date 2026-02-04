@@ -58,15 +58,15 @@ async def main():
     for key, value in RESULTS["system_info"].items():
         print(f"  {key}: {value}")
 
-    # Check API key
+    # Check API key (priority: NANOBANANA_GEMINI_API_KEY > GEMINI_API_KEY)
     print("\n[API Key 檢查]")
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("NANOBANANA_GEMINI_API_KEY")
+    api_key = os.environ.get("NANOBANANA_GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if api_key:
         print(f"  ✅ API Key 已設定 ({api_key[:8]}...)")
         RESULTS["api_key_check"] = True
     else:
         print("  ⚠️ API Key 未設定 (MCP 可能無法正常工作)")
-        print("  設定方式: export GEMINI_API_KEY=your-key")
+        print("  設定方式: export NANOBANANA_GEMINI_API_KEY=your-key")
         RESULTS["api_key_check"] = False
         # Continue anyway to test if MCP config is passed
 
@@ -76,8 +76,8 @@ async def main():
     mcp_config = [{
         "name": "nanobanana",
         "command": "uvx",
-        "args": ["nanobanana"],
-        "env": {"GEMINI_API_KEY": api_key or ""},
+        "args": ["nanobanana-py"],  # Correct package name is nanobanana-py
+        "env": {"NANOBANANA_GEMINI_API_KEY": api_key or ""},  # Use preferred env var name
     }]
 
     client = AcpClient(

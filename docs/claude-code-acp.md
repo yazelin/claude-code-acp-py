@@ -100,9 +100,9 @@ client = AcpClient(
         {
             "name": "nanobanana",
             "command": "uvx",
-            "args": ["nanobanana"],
+            "args": ["nanobanana-py"],  # 注意：package name 是 nanobanana-py
             "env": {
-                "GEMINI_API_KEY": "your-api-key",
+                "NANOBANANA_GEMINI_API_KEY": "your-api-key",  # 或 GEMINI_API_KEY
             },
         },
         {
@@ -136,15 +136,18 @@ import os
 from claude_code_acp import AcpClient
 
 async def main():
+    # 取得 API key (優先順序: NANOBANANA_GEMINI_API_KEY > GEMINI_API_KEY)
+    api_key = os.environ.get("NANOBANANA_GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
+
     client = AcpClient(
         command="claude-code-acp",
         cwd="/tmp",
         mcp_servers=[{
             "name": "nanobanana",
             "command": "uvx",
-            "args": ["nanobanana"],
+            "args": ["nanobanana-py"],  # 正確的 package name
             "env": {
-                "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY", ""),
+                "NANOBANANA_GEMINI_API_KEY": api_key,
             },
         }],
     )
@@ -231,6 +234,15 @@ claude /login
 1. MCP 配置格式是否正確
 2. 命令是否可執行 (`uvx`, `npx` 等)
 3. 環境變數是否設定正確
+4. Package name 是否正確 (例如 `nanobanana-py` 而非 `nanobanana`)
+
+### Q: nanobanana MCP 沒有 API key？
+
+nanobanana-py 支援多種環境變數名稱 (優先順序):
+1. `NANOBANANA_GEMINI_API_KEY` (建議)
+2. `NANOBANANA_GOOGLE_API_KEY`
+3. `GEMINI_API_KEY` (備援)
+4. `GOOGLE_API_KEY` (備援)
 
 ### Q: 權限請求沒有觸發 on_permission？
 

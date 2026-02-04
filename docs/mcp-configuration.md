@@ -28,8 +28,8 @@ client = AcpClient(
         {
             "name": "nanobanana",
             "command": "uvx",
-            "args": ["nanobanana"],
-            "env": {"GEMINI_API_KEY": "your-key"},
+            "args": ["nanobanana-py"],  # 注意: package name 是 nanobanana-py
+            "env": {"NANOBANANA_GEMINI_API_KEY": "your-key"},  # 或 GEMINI_API_KEY
         },
     ],
 )
@@ -50,14 +50,17 @@ mcp_servers = [
 
 ### 常見 MCP Server 配置
 
-#### nanobanana (圖片生成)
+#### nanobanana-py (圖片生成)
 
 ```python
 {
     "name": "nanobanana",
     "command": "uvx",
-    "args": ["nanobanana"],
-    "env": {"GEMINI_API_KEY": "your-gemini-api-key"},
+    "args": ["nanobanana-py"],  # Package name 是 nanobanana-py
+    "env": {
+        # 環境變數優先順序: NANOBANANA_GEMINI_API_KEY > GEMINI_API_KEY
+        "NANOBANANA_GEMINI_API_KEY": "your-gemini-api-key",
+    },
 }
 ```
 
@@ -91,11 +94,13 @@ mcp_servers = [
 # 新增 MCP server
 gemini mcp add <name> <command> [args...]
 
-# 範例
-gemini mcp add nanobanana "uvx nanobanana"
+# 範例 (注意: package name 是 nanobanana-py)
+gemini mcp add nanobanana "uvx nanobanana-py"
 
 # 如果需要環境變數，使用 bash wrapper
-gemini mcp add nanobanana "bash -c 'export GEMINI_API_KEY=xxx && uvx nanobanana'"
+gemini mcp add nanobanana "bash -c 'source /path/to/.env && uvx nanobanana-py'"
+# 或
+gemini mcp add nanobanana "bash -c 'export NANOBANANA_GEMINI_API_KEY=xxx && uvx nanobanana-py'"
 
 # 查看已配置的 servers
 gemini mcp list
@@ -120,7 +125,7 @@ client = AcpClient(
 
 ```bash
 # 配置多個
-gemini mcp add nanobanana "uvx nanobanana"
+gemini mcp add nanobanana "bash -c 'source ~/.env && uvx nanobanana-py'"
 gemini mcp add filesystem "npx -y @modelcontextprotocol/server-filesystem /tmp"
 ```
 

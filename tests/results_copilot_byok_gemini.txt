@@ -1,0 +1,45 @@
+============================================================
+測試: Copilot SDK + BYOK → Gemini API
+============================================================
+
+[系統資訊]
+  platform: Linux
+  python_version: 3.11.13
+  copilot_sdk_version: 0.1.0
+
+[Copilot SDK 檢查]
+  ✅ Copilot SDK 已安裝
+
+[Copilot CLI 檢查]
+  ✅ Copilot CLI 可用: GitHub Copilot CLI 0.0.402.
+
+[API Key 檢查]
+  ✅ Gemini API Key 已設定 (AIzaSyBJ...)
+
+[TEST] Copilot SDK + BYOK → Gemini API
+  架構: SDK → Copilot CLI (ACP) → Gemini API (HTTP)
+  啟動 Copilot Client...
+  連接時間: 2.05s ✅
+
+  建立 BYOK Session (Gemini API)...
+  Session 建立成功 ✅
+
+  發送測試訊息...
+  [回應] Hello from Gemini!
+...
+  回應時間: 2.70s
+  BYOK Gemini: ✅
+
+============================================================
+測試結果總覽
+============================================================
+連接測試: ✅ PASS (2.05s)
+BYOK Gemini API: ✅ PASS (2.70s)
+
+============================================================
+🎉 測試通過!
+
+結論:
+  Copilot SDK 可以透過 BYOK 連接 Gemini API (HTTP)
+  這跟連接 Gemini CLI ACP server 是不同的架構
+============================================================

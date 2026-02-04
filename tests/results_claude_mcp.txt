@@ -8,25 +8,32 @@
   claude_code_acp_version: 0.3.6
 
 [API Key 檢查]
-  ⚠️ API Key 未設定 (MCP 可能無法正常工作)
-  設定方式: export GEMINI_API_KEY=your-key
+  ✅ API Key 已設定 (AIzaSyBJ...)
 
 [TEST 1] 連接 (含動態 MCP 配置)
-  連接時間: 0.97s ✅
+  連接時間: 1.00s ✅
 
 [TEST 2] 檢查 MCP tools 是否可用
   MCP tools 可用: ✅
-  回應: Based on the tools available to me, I do **not** have any image generation tools.
-
-My available tools are focused on:
-- **Code/file operations**: Read...
+  回應: Yes, I have several image generation tools available through the **nanobanana** MCP server:
+    - mcp__nanobanana__generate_image
+    - mcp__nanobanana__edit_image
+    - mcp__nanobanana__restore_image
+    - mcp__nanobanana__generate_icon
+    - mcp__nanobanana__generate_pattern
+    - mcp__nanobanana__generate_story
+    - mcp__nanobanana__generate_diagram
 
 ============================================================
 測試結果總覽
 ============================================================
-連接測試: ✅ PASS (0.97s)
+連接測試: ✅ PASS (1.00s)
 動態 MCP 配置: ✅ PASS
 
 ============================================================
 🎉 所有測試通過!
 ============================================================
+
+修正說明:
+- 原問題: MCP package name 錯誤，使用 "nanobanana" 應改為 "nanobanana-py"
+- 原問題: 環境變數名稱應使用 "NANOBANANA_GEMINI_API_KEY" (優先) 或 "GEMINI_API_KEY" (備援)

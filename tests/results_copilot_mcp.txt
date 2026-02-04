@@ -1,0 +1,51 @@
+============================================================
+測試: AcpClient → Copilot CLI ACP Server + MCP
+============================================================
+
+[系統資訊]
+  platform: Linux
+  python_version: 3.11.13
+  claude_code_acp_version: 0.3.6
+  copilot_version: GitHub Copilot CLI 0.0.402.
+
+[Copilot CLI 檢查]
+  ✅ Copilot CLI 可用
+
+[API Key 檢查]
+  ✅ API Key 已設定
+
+============================================================
+測試結果總覽
+============================================================
+連接測試: ✅ PASS (6.30s)
+MCP tools 可用: ✅ PASS
+
+============================================================
+🎉 所有測試通過!
+============================================================
+
+MCP 配置格式說明:
+Copilot CLI 的 MCP 配置格式與 Claude/Gemini 不同:
+- 需要 "type": "local" (而非 "stdio")
+- 需要 "tools": ["*"] 欄位
+- 環境變數需使用 ${VAR} 語法
+
+範例配置:
+{
+  "mcpServers": {
+    "nanobanana": {
+      "type": "local",
+      "command": "uvx",
+      "args": ["nanobanana-py"],
+      "tools": ["*"],
+      "env": {
+        "NANOBANANA_GEMINI_API_KEY": "${NANOBANANA_GEMINI_API_KEY}"
+      }
+    }
+  }
+}
+
+配置方式:
+1. 專案配置: .copilot/mcp-config.json (放在專案根目錄)
+2. 全域配置: ~/.copilot/mcp-config.json
+3. 臨時配置: --additional-mcp-config "@/path/to/config.json"
