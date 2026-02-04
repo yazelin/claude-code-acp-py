@@ -32,6 +32,17 @@ __all__ = ["AcpClient", "AcpClientEvents"]
 
 
 @dataclass
+class TerminalProcess:
+    """Represents an active terminal process."""
+
+    process: asyncio.subprocess.Process
+    command: str
+    cwd: str
+    output_buffer: list[str]
+    exit_code: int | None = None
+
+
+@dataclass
 class AcpClientEvents:
     """Event handlers for ACP client."""
 
@@ -45,6 +56,9 @@ class AcpClientEvents:
     # File operation handlers (optional - if not set, operations proceed automatically)
     on_file_read: Callable[[str], Coroutine[Any, Any, str | None]] | None = None
     on_file_write: Callable[[str, str], Coroutine[Any, Any, bool]] | None = None
+    # Terminal operation handlers (optional)
+    on_terminal_create: Callable[[str, str], Coroutine[Any, Any, bool]] | None = None
+    on_terminal_output: Callable[[str, str], Coroutine[Any, Any, None]] | None = None
 
 
 class AcpClient:
@@ -98,6 +112,9 @@ class AcpClient:
         self._session_id: str | None = None
         self._text_buffer = ""
         self._initialized = False
+        # Terminal management
+        self._terminals: dict[str, TerminalProcess] = {}
+        self._terminal_counter = 0
 
     # --- Event decorators ---
 
@@ -167,6 +184,29 @@ class AcpClient:
         self.events.on_file_write = func
         return func
 
+    def on_terminal_create(self, func: Callable[[str, str], Coroutine[Any, Any, bool]]):
+        """
+        Register handler for terminal creation requests.
+
+        The handler receives (command, cwd) and should return:
+        - True: Allow the terminal to be created
+        - False: Block the terminal creation
+
+        This allows intercepting shell command execution for security.
+        """
+        self.events.on_terminal_create = func
+        return func
+
+    def on_terminal_output(self, func: Callable[[str, str], Coroutine[Any, Any, None]]):
+        """
+        Register handler for terminal output.
+
+        The handler receives (terminal_id, output) when new output is available.
+        This allows displaying or logging terminal output in real-time.
+        """
+        self.events.on_terminal_output = func
+        return func
+
     # --- Connection management ---
 
     async def connect(self) -> None:
@@ -209,6 +249,15 @@ class AcpClient:
 
     async def disconnect(self) -> None:
         """Disconnect from the ACP agent."""
+        # Clean up all terminals
+        for terminal_id, terminal in list(self._terminals.items()):
+            try:
+                terminal.process.kill()
+                await terminal.process.wait()
+            except Exception:
+                pass
+        self._terminals.clear()
+
         if self._connection:
             await self._connection.close()
             self._connection = None
@@ -431,25 +480,198 @@ class AcpClient:
                     logger.error(f"Failed to read file {path}: {e}")
                     return {"content": "", "error": str(e)}
 
-            async def create_terminal(self, **kwargs) -> dict:
-                """Handle terminal creation (stub)."""
-                return {"terminal_id": "stub"}
+            async def create_terminal(
+                self,
+                command: str = "",
+                args: list[str] | None = None,
+                cwd: str | None = None,
+                env: dict[str, str] | None = None,
+                **kwargs,
+            ) -> dict:
+                """
+                Create a terminal and execute a command.
 
-            async def terminal_output(self, **kwargs) -> dict:
-                """Handle terminal output requests (stub)."""
-                return {"output": ""}
+                The agent requests the client to run a shell command.
+                This enables command execution in the user's environment.
 
-            async def release_terminal(self, **kwargs) -> None:
-                """Handle terminal release (stub)."""
-                pass
+                Args:
+                    command: The command to execute.
+                    args: Command arguments.
+                    cwd: Working directory (defaults to client cwd).
+                    env: Additional environment variables.
 
-            async def wait_for_terminal_exit(self, **kwargs) -> dict:
-                """Handle terminal exit wait (stub)."""
-                return {"exit_code": 0}
+                Returns:
+                    A dict with 'terminal_id' for tracking the process.
+                """
+                work_dir = cwd or client.cwd
+                full_command = command
+                if args:
+                    full_command = f"{command} {' '.join(args)}"
 
-            async def kill_terminal(self, **kwargs) -> None:
-                """Handle terminal kill (stub)."""
-                pass
+                # Check if handler wants to block the terminal creation
+                if client.events.on_terminal_create:
+                    allowed = await client.events.on_terminal_create(full_command, work_dir)
+                    if not allowed:
+                        logger.info(f"Terminal creation blocked by handler: {full_command}")
+                        return {"terminal_id": "", "error": "Terminal creation blocked"}
+
+                try:
+                    # Create the subprocess
+                    process = await asyncio.create_subprocess_shell(
+                        full_command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.STDOUT,
+                        cwd=work_dir,
+                        env={**dict(env or {})} if env else None,
+                    )
+
+                    # Generate terminal ID
+                    client._terminal_counter += 1
+                    terminal_id = f"terminal-{client._terminal_counter}"
+
+                    # Store the terminal
+                    client._terminals[terminal_id] = TerminalProcess(
+                        process=process,
+                        command=full_command,
+                        cwd=work_dir,
+                        output_buffer=[],
+                    )
+
+                    logger.debug(f"Created terminal {terminal_id}: {full_command}")
+                    return {"terminal_id": terminal_id}
+
+                except Exception as e:
+                    logger.error(f"Failed to create terminal: {e}")
+                    return {"terminal_id": "", "error": str(e)}
+
+            async def terminal_output(
+                self,
+                terminal_id: str = "",
+                **kwargs,
+            ) -> dict:
+                """
+                Get output from a terminal.
+
+                Args:
+                    terminal_id: The terminal to get output from.
+
+                Returns:
+                    A dict with 'output' containing available output.
+                """
+                terminal = client._terminals.get(terminal_id)
+                if not terminal:
+                    return {"output": "", "error": f"Terminal not found: {terminal_id}"}
+
+                try:
+                    # Try to read available output (non-blocking)
+                    if terminal.process.stdout:
+                        try:
+                            # Read with a short timeout
+                            output = await asyncio.wait_for(
+                                terminal.process.stdout.read(4096),
+                                timeout=0.1,
+                            )
+                            if output:
+                                decoded = output.decode("utf-8", errors="replace")
+                                terminal.output_buffer.append(decoded)
+
+                                # Notify handler if registered
+                                if client.events.on_terminal_output:
+                                    await client.events.on_terminal_output(terminal_id, decoded)
+
+                                return {"output": decoded}
+                        except asyncio.TimeoutError:
+                            pass
+
+                    # Return buffered output if no new output
+                    if terminal.output_buffer:
+                        return {"output": "".join(terminal.output_buffer)}
+                    return {"output": ""}
+
+                except Exception as e:
+                    logger.error(f"Failed to get terminal output: {e}")
+                    return {"output": "", "error": str(e)}
+
+            async def release_terminal(
+                self,
+                terminal_id: str = "",
+                **kwargs,
+            ) -> None:
+                """
+                Release a terminal without killing it.
+
+                The terminal continues running but we stop tracking it.
+
+                Args:
+                    terminal_id: The terminal to release.
+                """
+                if terminal_id in client._terminals:
+                    logger.debug(f"Released terminal: {terminal_id}")
+                    del client._terminals[terminal_id]
+
+            async def wait_for_terminal_exit(
+                self,
+                terminal_id: str = "",
+                **kwargs,
+            ) -> dict:
+                """
+                Wait for a terminal to exit and return its exit code.
+
+                Args:
+                    terminal_id: The terminal to wait for.
+
+                Returns:
+                    A dict with 'exit_code'.
+                """
+                terminal = client._terminals.get(terminal_id)
+                if not terminal:
+                    return {"exit_code": -1, "error": f"Terminal not found: {terminal_id}"}
+
+                try:
+                    # Read remaining output while waiting
+                    if terminal.process.stdout:
+                        remaining = await terminal.process.stdout.read()
+                        if remaining:
+                            decoded = remaining.decode("utf-8", errors="replace")
+                            terminal.output_buffer.append(decoded)
+                            if client.events.on_terminal_output:
+                                await client.events.on_terminal_output(terminal_id, decoded)
+
+                    # Wait for process to exit
+                    exit_code = await terminal.process.wait()
+                    terminal.exit_code = exit_code
+                    logger.debug(f"Terminal {terminal_id} exited with code {exit_code}")
+                    return {"exit_code": exit_code}
+
+                except Exception as e:
+                    logger.error(f"Failed to wait for terminal exit: {e}")
+                    return {"exit_code": -1, "error": str(e)}
+
+            async def kill_terminal(
+                self,
+                terminal_id: str = "",
+                **kwargs,
+            ) -> None:
+                """
+                Kill a terminal process.
+
+                Args:
+                    terminal_id: The terminal to kill.
+                """
+                terminal = client._terminals.get(terminal_id)
+                if not terminal:
+                    return
+
+                try:
+                    terminal.process.kill()
+                    await terminal.process.wait()
+                    logger.debug(f"Killed terminal: {terminal_id}")
+                except Exception as e:
+                    logger.error(f"Failed to kill terminal: {e}")
+
+                # Remove from tracking
+                if terminal_id in client._terminals:
+                    del client._terminals[terminal_id]
 
             async def ext_method(self, method: str, params: dict) -> dict:
                 """Handle extension methods."""

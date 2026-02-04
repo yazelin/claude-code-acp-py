@@ -230,6 +230,24 @@ async def handle_write(path: str, content: str) -> bool:
     return response.lower() == "y"
 ```
 
+### Terminal Operation Handlers
+
+AcpClient supports intercepting terminal/shell execution for security:
+
+```python
+@client.on_terminal_create
+async def handle_terminal(command: str, cwd: str) -> bool:
+    """Intercept shell commands. Return True to allow, False to block."""
+    print(f"🖥️ Command: {command} in {cwd}")
+    response = input("Allow execution? [y/N]: ")
+    return response.lower() == "y"
+
+@client.on_terminal_output
+async def handle_output(terminal_id: str, output: str) -> None:
+    """Receive terminal output in real-time."""
+    print(output, end="")
+```
+
 ### AcpClient vs ClaudeClient
 
 | Feature | `ClaudeClient` | `AcpClient` |
