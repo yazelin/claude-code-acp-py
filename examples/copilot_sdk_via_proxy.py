@@ -55,10 +55,11 @@ async def main():
     print("    ✅ 成功")
 
     # 根據後端選擇模型
+    # 注意: claude-code-acp 只支援 'opus' 和 'sonnet' 作為 alias
     model_map = {
         "gemini": "gemini-2.5-flash",
-        "claude-code-acp": "opus",
-        "copilot": "gpt-5",
+        "claude-code-acp": "sonnet",  # 或 "opus"
+        "copilot": "gpt-4o",
     }
     model = model_map.get(backend, "default")
 

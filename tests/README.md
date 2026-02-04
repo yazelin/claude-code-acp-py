@@ -475,14 +475,19 @@ await session.send({"prompt": "Hello!"})
 3. `claude-code-acp` Agent 的 `set_session_model` 只是 stub，沒有實際功能
 4. `ClaudeAgentOptions` 創建時沒有傳入 `model` 參數
 
+**根本原因**:
+ACP library 將 `set_session_model` 標記為 `unstable=True`，預設不會註冊此方法。
+需要在 `run_agent()` 時傳入 `use_unstable_protocol=True` 才能啟用。
+
 **修復內容**:
 
 | 檔案 | 修改 |
 |------|------|
+| `__init__.py` | `run_agent()` 加入 `use_unstable_protocol=True` |
 | `agent.py` | Session 新增 `model` 欄位 |
 | `agent.py` | `set_session_model` 實際儲存 model |
 | `agent.py` | `ClaudeAgentOptions` 傳入 `model=session.model` |
-| `acp_client.py` | 新增 `set_model()` 方法 |
+| `acp_client.py` | 新增 `set_model()` 方法，支援 pending model |
 | `session_manager.py` | 建立 session 後呼叫 `set_model` |
 
 **正確流程**:
@@ -490,10 +495,12 @@ await session.send({"prompt": "Hello!"})
 Copilot SDK (model: "opus")
     ↓ session.create
 ACP Proxy
-    ↓ set_session_model("opus")
-claude-code-acp Agent
+    ↓ backend_client.set_model("opus")
+AcpClient
+    ↓ 存入 _pending_model (因為 session 還沒建立)
+    ↓ new_session() 時 set_session_model("opus")
+claude-code-acp Agent (use_unstable_protocol=True)
     ↓ session.model = "opus"
-Claude Agent SDK
     ↓ ClaudeAgentOptions(model="opus")
 Claude Opus 4.5 ✅
 ```
@@ -502,8 +509,8 @@ Claude Opus 4.5 ✅
 
 | 測試 | 修復前 | 修復後 |
 |------|--------|--------|
+| `model: "sonnet"` | (忽略) | **Claude Sonnet 4.5** ✅ |
 | `model: "opus"` | Claude 3.5 Sonnet | **Claude Opus 4.5** ✅ |
-| 回應內容 | "我是 Claude 3.5 Sonnet..." | "I am Claude Opus 4.5 (claude-4opus-20250415)..." |
 
 **範例程式**:
 ```python
@@ -520,6 +527,9 @@ session = await client.create_session({"model": "opus"})  # ← 現在有效！
 
 | Backend | 可用值 |
 |---------|--------|
-| claude-code-acp | `opus`, `sonnet`, `haiku` 或完整 ID |
+| claude-code-acp | `opus`, `sonnet` (僅這兩個 alias 有效) |
 | Gemini | `gemini-2.5-pro`, `gemini-2.5-flash`, etc. |
 | Copilot | `gpt-4`, `gpt-4o`, etc. |
+
+**Debug**:
+設定 `ACP_PROXY_LOG_FILE=/tmp/proxy.log` 可以將 proxy 的 log 寫入檔案方便除錯。
