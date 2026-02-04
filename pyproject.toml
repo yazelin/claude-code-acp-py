@@ -25,6 +25,7 @@ dependencies = [
 
 [project.scripts]
 claude-code-acp = "claude_code_acp:main"
+copilot-acp-proxy = "claude_code_acp.proxy.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/yazelin/claude-code-acp-py"
