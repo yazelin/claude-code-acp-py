@@ -1,0 +1,56 @@
+Process terminate timed out, killing
+============================================================
+測試: AcpClient → Gemini ACP + MCP
+============================================================
+
+[系統資訊]
+  platform: Linux
+  python_version: 3.11.13
+  claude_code_acp_version: 0.3.6
+
+[MCP 配置檢查]
+  ✅ nanobanana 已配置
+
+[TEST 1] 連接 (含 MCP)
+  連接時間: 8.67s ✅
+
+[TEST 2] 檢查 MCP tools
+  [THINK] **Investigating Image Generation Tools**
+
+I'm curr...
+  [THINK] **Evaluating Available Tools**
+
+I'm now prioritizi...
+  [THINK] **Determining the Right Response**
+
+Okay, the ques...
+  [THINK] **Refining My Approach**
+
+Now I have a clearer pic...
+  MCP tools 可用: ✅
+  回應摘要: Based on the loaded context, the **Nano Banana** extension is available for image generation. It sup...
+
+============================================================
+測試結果總覽
+============================================================
+連接測試: ✅ PASS (8.67s)
+MCP tools 可用: ✅ PASS
+
+============================================================
+🎉 所有測試通過!
+============================================================
+Exception ignored in: <function BaseSubprocessTransport.__del__ at 0x7f4a5af504a0>
+Traceback (most recent call last):
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+    self.close()
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+    proto.pipe.close()
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/unix_events.py", line 765, in close
+    self.write_eof()
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/unix_events.py", line 751, in write_eof
+    self._loop.call_soon(self._call_connection_lost, None)
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+    self._check_closed()
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed

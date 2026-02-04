@@ -1,0 +1,55 @@
+Process terminate timed out, killing
+============================================================
+測試: AcpClient → Gemini ACP
+============================================================
+
+[系統資訊]
+  platform: Linux
+  platform_version: #37~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Thu Nov 20 10:25:38 UTC 2
+  python_version: 3.11.13
+  machine: x86_64
+  claude_code_acp_version: 0.3.6
+  gemini_version: 0.26.0
+
+[TEST 1] 連接測試 (Gemini 需要 ~12s 初始化)
+  連接時間: 8.83s ✅
+
+[TEST 2] 簡單 prompt
+  [THINK] **Responding Condescendingly**
+
+I've considered th...
+  [THINK] **Simplifying The Task**
+
+My focus has shifted. Th...
+  回應: 'Hello...' ✅
+  耗時: 6.52s
+
+============================================================
+測試結果總覽
+============================================================
+連接測試: ✅ PASS (8.83s)
+簡單 prompt: ✅ PASS
+
+Events:
+  on_text: ✅
+  on_thinking: ✅
+  on_complete: ✅
+
+============================================================
+🎉 所有測試通過!
+============================================================
+Exception ignored in: <function BaseSubprocessTransport.__del__ at 0x774fc3050360>
+Traceback (most recent call last):
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+    self.close()
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+    proto.pipe.close()
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/unix_events.py", line 765, in close
+    self.write_eof()
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/unix_events.py", line 751, in write_eof
+    self._loop.call_soon(self._call_connection_lost, None)
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+    self._check_closed()
+  File "/home/ct/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed
