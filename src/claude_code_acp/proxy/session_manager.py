@@ -102,13 +102,20 @@ class ProxySessionManager:
             # Gemini uses --experimental-acp
             if "--experimental-acp" not in backend_args:
                 backend_args.append("--experimental-acp")
+            # Gemini: pass model as CLI argument (doesn't support set_session_model)
+            if model and "--model" not in backend_args and "-m" not in backend_args:
+                backend_args.extend(["--model", model])
         elif self.backend_command in ("claude", "claude-code", "claude-code-acp"):
             # Claude code already runs in ACP mode (no additional flags needed)
+            # Model is set via set_session_model ACP method
             pass
         elif self.backend_command == "copilot":
             # Copilot uses --acp
             if "--acp" not in backend_args:
                 backend_args.append("--acp")
+            # Copilot: pass model as CLI argument (doesn't support set_session_model)
+            if model and "--model" not in backend_args:
+                backend_args.extend(["--model", model])
 
         # Create backend client
         backend_client = AcpClient(

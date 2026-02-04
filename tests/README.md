@@ -525,14 +525,15 @@ session = await client.create_session({"model": "opus"})  # ← 現在有效！
 
 **Model 參數支援情況**:
 
-| Backend | 支援 set_session_model | 可用值 |
-|---------|----------------------|--------|
-| claude-code-acp | ✅ 支援 | `opus`, `sonnet` |
-| Gemini | ❌ 不支援 | (忽略，使用預設) |
-| Copilot | ❌ 不支援 | (忽略，使用預設) |
+| Backend | 方式 | 可用值 | 測試結果 |
+|---------|------|--------|---------|
+| claude-code-acp | `set_session_model` ACP 方法 | `opus`, `sonnet` | ✅ 已驗證 |
+| Gemini | `--model` CLI 參數 | `gemini-2.0-flash`, `gemini-2.5-flash`, etc. | ✅ 已驗證 |
+| Copilot | `--model` CLI 參數 | `gpt-4`, `gpt-4o`, etc. | 🔄 待驗證 |
 
-**注意**: Gemini CLI 和 Copilot CLI 的 ACP 實作不支援 `set_session_model` 方法，
-所以傳入的 `model` 參數會被忽略，使用各自的預設模型。
+**實作方式**:
+- **claude-code-acp**: 透過 ACP 的 `set_session_model` 方法（需啟用 unstable protocol）
+- **Gemini/Copilot**: 透過啟動時的 CLI 參數 `--model`（因為它們的 ACP 不支援 set_session_model）
 
 **Debug**:
 設定 `ACP_PROXY_LOG_FILE=/tmp/proxy.log` 可以將 proxy 的 log 寫入檔案方便除錯。
