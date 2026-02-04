@@ -232,47 +232,51 @@ ts_claude = AcpClient(command="npx", args=["@zed-industries/claude-code-acp"])
 
 ## Architecture
 
+This package provides **three ways** to use Claude:
+
+### Method A: Editor via ACP (ClaudeAcpAgent)
+
+For Zed, Neovim, and other ACP-compatible editors:
+
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                          claude-code-acp Package                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ACP SERVER (for editors)              ACP CLIENT (for Python apps)          │
-│  ─────────────────────────             ────────────────────────────          │
-│                                                                              │
-│  ┌─────────────┐                       ┌─────────────┐                       │
-│  │ Zed/Neovim  │                       │ Your Python │                       │
-│  │   Editor    │                       │    App      │                       │
-│  └──────┬──────┘                       └──────┬──────┘                       │
-│         │                                     │                              │
-│         │ ACP                                 │ uses                         │
-│         ▼                                     ▼                              │
-│  ┌──────────────────┐               ┌─────────────────┐                      │
-│  │ ClaudeAcpAgent   │               │   AcpClient     │───┐                  │
-│  │  (ACP Server)    │               │  (ACP Client)   │   │                  │
-│  └────────┬─────────┘               └────────┬────────┘   │                  │
-│           │                                  │            │ can connect to   │
-│           │                                  │ ACP        │ any ACP agent    │
-│           ▼                                  ▼            │                  │
-│  ┌──────────────────┐               ┌─────────────────┐  │                  │
-│  │  ClaudeClient    │               │  claude-code-acp│◄─┘                  │
-│  │ (Python wrapper) │               │  Gemini CLI     │                      │
-│  └────────┬─────────┘               │  Other agents   │                      │
-│           │                         └─────────────────┘                      │
-│           │                                                                  │
-│           ▼                                                                  │
-│  ┌──────────────────┐                                                        │
-│  │ Claude Agent SDK │                                                        │
-│  └────────┬─────────┘                                                        │
-│           │                                                                  │
-│           ▼                                                                  │
-│  ┌──────────────────┐                                                        │
-│  │   Claude CLI     │                                                        │
-│  │ (Subscription)   │                                                        │
-│  └──────────────────┘                                                        │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────┐      ACP Protocol      ┌─────────────────┐      SDK      ┌────────────┐
+│   Zed    │ ────── stdio ───────►  │ ClaudeAcpAgent  │ ──────────►   │ Claude CLI │
+│  Editor  │                        │  (ACP Server)   │               │            │
+└──────────┘                        └─────────────────┘               └────────────┘
 ```
+
+### Method B: Python Direct (ClaudeClient)
+
+For Python apps that want simple, direct access to Claude (**no ACP protocol**):
+
+```
+┌──────────┐     direct call      ┌─────────────────┐      SDK      ┌────────────┐
+│  Python  │ ──── in-process ───► │  ClaudeClient   │ ──────────►   │ Claude CLI │
+│   App    │                      │                 │               │            │
+└──────────┘                      └─────────────────┘               └────────────┘
+```
+
+### Method C: Python via ACP (AcpClient)
+
+For Python apps that want to connect to **any** ACP-compatible agent:
+
+```
+┌──────────┐      ACP Protocol      ┌─────────────────┐
+│  Python  │ ────── stdio ───────►  │  Any ACP Agent  │
+│   App    │                        │                 │
+│          │                        │ • claude-code   │
+│ AcpClient│                        │ • gemini        │
+│          │                        │ • custom agents │
+└──────────┘                        └─────────────────┘
+```
+
+### Summary
+
+| Component | Uses ACP? | Purpose |
+|-----------|-----------|---------|
+| `ClaudeAcpAgent` | Yes (Server) | Let editors connect to Claude |
+| `ClaudeClient` | **No** | Simplest way for Python apps |
+| `AcpClient` | Yes (Client) | Connect to any ACP agent |
 
 ---
 
