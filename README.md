@@ -196,6 +196,21 @@ async def main():
 asyncio.run(main())
 ```
 
+### Connect to Different Agents
+
+```python
+from claude_code_acp import AcpClient
+
+# Connect to our Claude ACP server
+claude = AcpClient(command="claude-code-acp")
+
+# Connect to Gemini CLI
+gemini = AcpClient(command="gemini", args=["--experimental-acp"])
+
+# Connect to TypeScript version
+ts_claude = AcpClient(command="npx", args=["@zed-industries/claude-code-acp"])
+```
+
 ### AcpClient vs ClaudeClient
 
 | Feature | `ClaudeClient` | `AcpClient` |
@@ -205,50 +220,58 @@ asyncio.run(main())
 | Agents | Claude only | Any ACP-compatible agent |
 | Use case | Simple Python apps | Multi-agent, testing, flexibility |
 
+### Tested Agents
+
+| Agent | Command | Status |
+|-------|---------|--------|
+| claude-code-acp (this package) | `claude-code-acp` | ✅ Works |
+| Gemini CLI | `gemini --experimental-acp` | ✅ Works |
+| TypeScript version | `npx @zed-industries/claude-code-acp` | ✅ Compatible |
+
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Your Application                                │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────┐                      ┌─────────────────────────────┐  │
-│  │   Zed/Neovim    │                      │     Python Application      │  │
-│  │   (ACP Client)  │                      │                             │  │
-│  └────────┬────────┘                      │  client = ClaudeClient()    │  │
-│           │                               │                             │  │
-│           │ ACP Protocol                  │  @client.on_text            │  │
-│           │ (stdio/JSON-RPC)              │  async def handle(text):    │  │
-│           │                               │      print(text)            │  │
-│           ▼                               │                             │  │
-│  ┌────────────────────────────────────────┴─────────────────────────────┐  │
-│  │                                                                       │  │
-│  │                      claude-code-acp (This Package)                   │  │
-│  │                                                                       │  │
-│  │   ┌─────────────────────┐      ┌─────────────────────────────────┐   │  │
-│  │   │   ClaudeAcpAgent    │      │        ClaudeClient             │   │  │
-│  │   │   (ACP Server)      │      │    (Event-driven wrapper)       │   │  │
-│  │   └──────────┬──────────┘      └───────────────┬─────────────────┘   │  │
-│  │              │                                 │                      │  │
-│  │              └────────────────┬────────────────┘                      │  │
-│  │                               │                                       │  │
-│  └───────────────────────────────┼───────────────────────────────────────┘  │
-│                                  │                                          │
-│                                  ▼                                          │
-│                    ┌─────────────────────────────┐                          │
-│                    │    Claude Agent SDK         │                          │
-│                    │    (claude-agent-sdk)       │                          │
-│                    └──────────────┬──────────────┘                          │
-│                                   │                                         │
-│                                   ▼                                         │
-│                    ┌─────────────────────────────┐                          │
-│                    │       Claude CLI            │                          │
-│                    │  (Your Claude Subscription) │                          │
-│                    └─────────────────────────────┘                          │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          claude-code-acp Package                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ACP SERVER (for editors)              ACP CLIENT (for Python apps)          │
+│  ─────────────────────────             ────────────────────────────          │
+│                                                                              │
+│  ┌─────────────┐                       ┌─────────────┐                       │
+│  │ Zed/Neovim  │                       │ Your Python │                       │
+│  │   Editor    │                       │    App      │                       │
+│  └──────┬──────┘                       └──────┬──────┘                       │
+│         │                                     │                              │
+│         │ ACP                                 │ uses                         │
+│         ▼                                     ▼                              │
+│  ┌──────────────────┐               ┌─────────────────┐                      │
+│  │ ClaudeAcpAgent   │               │   AcpClient     │───┐                  │
+│  │  (ACP Server)    │               │  (ACP Client)   │   │                  │
+│  └────────┬─────────┘               └────────┬────────┘   │                  │
+│           │                                  │            │ can connect to   │
+│           │                                  │ ACP        │ any ACP agent    │
+│           ▼                                  ▼            │                  │
+│  ┌──────────────────┐               ┌─────────────────┐  │                  │
+│  │  ClaudeClient    │               │  claude-code-acp│◄─┘                  │
+│  │ (Python wrapper) │               │  Gemini CLI     │                      │
+│  └────────┬─────────┘               │  Other agents   │                      │
+│           │                         └─────────────────┘                      │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌──────────────────┐                                                        │
+│  │ Claude Agent SDK │                                                        │
+│  └────────┬─────────┘                                                        │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌──────────────────┐                                                        │
+│  │   Claude CLI     │                                                        │
+│  │ (Subscription)   │                                                        │
+│  └──────────────────┘                                                        │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
