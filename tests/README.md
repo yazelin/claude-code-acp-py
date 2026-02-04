@@ -529,11 +529,22 @@ session = await client.create_session({"model": "opus"})  # ← 現在有效！
 |---------|------|--------|---------|
 | claude-code-acp | `set_session_model` ACP 方法 | `opus`, `sonnet` | ✅ 已驗證 |
 | Gemini | `--model` CLI 參數 | `gemini-2.0-flash`, `gemini-2.5-flash`, etc. | ✅ 已驗證 |
-| Copilot | `--model` CLI 參數 | `gpt-4`, `gpt-4o`, etc. | 🔄 待驗證 |
+| Copilot | `--model` CLI + ACP 方法 | 見下表 | ✅ 參數有傳遞 |
+
+**Copilot 支援的 Model**:
+```
+claude-sonnet-4.5, claude-haiku-4.5, claude-opus-4.5, claude-sonnet-4
+gemini-3-pro-preview
+gpt-5.2-codex, gpt-5.2, gpt-5.1-codex-max, gpt-5.1-codex, gpt-5.1, gpt-5
+gpt-5.1-codex-mini, gpt-5-mini, gpt-4.1
+```
 
 **實作方式**:
 - **claude-code-acp**: 透過 ACP 的 `set_session_model` 方法（需啟用 unstable protocol）
-- **Gemini/Copilot**: 透過啟動時的 CLI 參數 `--model`（因為它們的 ACP 不支援 set_session_model）
+- **Gemini**: 透過啟動時的 CLI 參數 `--model`（ACP 不支援 set_session_model）
+- **Copilot**: 同時使用 CLI 參數和 ACP 方法（Copilot 支援 set_session_model）
+
+**注意**: Copilot 不會在回應中透露實際使用的 model，但從 log 可確認參數有正確傳遞。
 
 **Debug**:
 設定 `ACP_PROXY_LOG_FILE=/tmp/proxy.log` 可以將 proxy 的 log 寫入檔案方便除錯。
