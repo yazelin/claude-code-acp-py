@@ -74,6 +74,12 @@ class Session:
     cancelled: bool = False
     tool_use_cache: dict[str, ToolUseBlock] = field(default_factory=dict)
     mcp_servers: dict[str, Any] = field(default_factory=dict)
+    system_prompt: str | dict | None = None
+    # Keep client alive for multi-turn conversations
+    client: ClaudeSDKClient | None = None
+    client_started: bool = False
+    # Track streamed text to avoid duplicate sends
+    streamed_text: str = ""
 
 
 class ClaudeAcpAgent(Agent):
@@ -137,6 +143,7 @@ class ClaudeAcpAgent(Agent):
         self,
         cwd: str,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
+        system_prompt: str | dict | None = None,
         **kwargs: Any,
     ) -> NewSessionResponse:
         """Create a new Claude session."""
@@ -149,6 +156,7 @@ class ClaudeAcpAgent(Agent):
             session_id=session_id,
             cwd=cwd,
             mcp_servers=sdk_mcp_servers,
+            system_prompt=system_prompt,
         )
 
         logger.info(f"New session created: {session_id} in {cwd} with {len(sdk_mcp_servers)} MCP servers")
@@ -223,6 +231,7 @@ class ClaudeAcpAgent(Agent):
 
         session = self._sessions[session_id]
         session.cancelled = False
+        session.streamed_text = ""  # Reset for new turn
 
         # Convert ACP prompt to text
         prompt_text = self._convert_prompt_to_text(prompt)
@@ -235,6 +244,7 @@ class ClaudeAcpAgent(Agent):
             permission_mode=session.permission_mode,
             include_partial_messages=True,
             mcp_servers=session.mcp_servers if session.mcp_servers else {},
+            system_prompt=session.system_prompt,
         )
 
         # Add permission callback if not bypassing permissions
@@ -244,25 +254,41 @@ class ClaudeAcpAgent(Agent):
                 permission_mode=session.permission_mode,
                 include_partial_messages=True,
                 mcp_servers=session.mcp_servers if session.mcp_servers else {},
+                system_prompt=session.system_prompt,
                 can_use_tool=self._create_permission_handler(session_id),
             )
 
         try:
-            # Use ClaudeSDKClient for streaming mode (required for can_use_tool callback)
-            async with ClaudeSDKClient(options) as client:
-                # Send the query
-                await client.query(prompt_text)
+            # Reuse existing client for multi-turn conversations, or create new one
+            if session.client is None or not session.client_started:
+                session.client = ClaudeSDKClient(options)
+                await session.client.__aenter__()
+                session.client_started = True
+                logger.info(f"Created new ClaudeSDKClient for session {session_id}")
 
-                # Receive and process messages
-                async for message in client.receive_response():
-                    if session.cancelled:
-                        await client.interrupt()
-                        return PromptResponse(stop_reason="cancelled")
+            client = session.client
 
-                    await self._handle_message(session_id, message)
+            # Send the query
+            await client.query(prompt_text)
+
+            # Receive and process messages
+            async for message in client.receive_response():
+                if session.cancelled:
+                    await client.interrupt()
+                    return PromptResponse(stop_reason="cancelled")
+
+                await self._handle_message(session_id, message)
 
         except Exception as e:
             logger.error(f"Error in prompt: {e}")
+            # On error, close the client so next prompt creates a fresh one
+            if session.client and session.client_started:
+                try:
+                    await session.client.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                session.client = None
+                session.client_started = False
             raise
 
         return PromptResponse(stop_reason="end_turn")
@@ -315,12 +341,46 @@ class ClaudeAcpAgent(Agent):
         sdk_servers: dict[str, Any] = {}
 
         for i, server in enumerate(acp_servers):
-            if isinstance(server, dict):
-                server_type = server.get("type")
-                name = server.get("name", f"mcp-server-{i}")
+            name = f"mcp-server-{i}"
+
+            # Check for ACP schema types first (Pydantic models)
+            if isinstance(server, McpServerStdio):
+                name = server.name or name
+                # Convert EnvVariable list to dict
+                env_dict = {}
+                if server.env:
+                    for ev in server.env:
+                        env_dict[ev.name] = ev.value
+                sdk_servers[name] = {
+                    "type": "stdio",
+                    "command": server.command,
+                    "args": server.args or [],
+                    "env": env_dict,
+                }
+                logger.info(f"Added MCP server: {name} (stdio)")
+
+            elif isinstance(server, SseMcpServer):
+                name = server.name or name
+                sdk_servers[name] = {
+                    "type": "sse",
+                    "url": server.url,
+                }
+                logger.info(f"Added MCP server: {name} (sse)")
+
+            elif isinstance(server, HttpMcpServer):
+                name = server.name or name
+                sdk_servers[name] = {
+                    "type": "http",
+                    "url": server.url,
+                }
+                logger.info(f"Added MCP server: {name} (http)")
+
+            elif isinstance(server, dict):
+                # Dict-based config (legacy support)
+                server_type = server.get("type", "stdio")
+                name = server.get("name", name)
 
                 if server_type == "stdio":
-                    # Stdio MCP server
                     sdk_servers[name] = {
                         "type": "stdio",
                         "command": server.get("command", ""),
@@ -328,41 +388,14 @@ class ClaudeAcpAgent(Agent):
                         "env": server.get("env", {}),
                     }
                 elif server_type == "sse":
-                    # SSE MCP server
                     sdk_servers[name] = {
                         "type": "sse",
                         "url": server.get("url", ""),
                     }
                 elif server_type == "http":
-                    # HTTP MCP server
                     sdk_servers[name] = {
                         "type": "http",
                         "url": server.get("url", ""),
-                    }
-
-                logger.info(f"Added MCP server: {name} ({server_type})")
-
-            elif hasattr(server, "type"):
-                # Pydantic model
-                name = getattr(server, "name", f"mcp-server-{i}")
-                server_type = server.type
-
-                if server_type == "stdio":
-                    sdk_servers[name] = {
-                        "type": "stdio",
-                        "command": getattr(server, "command", ""),
-                        "args": getattr(server, "args", []),
-                        "env": getattr(server, "env", {}),
-                    }
-                elif server_type == "sse":
-                    sdk_servers[name] = {
-                        "type": "sse",
-                        "url": getattr(server, "url", ""),
-                    }
-                elif server_type == "http":
-                    sdk_servers[name] = {
-                        "type": "http",
-                        "url": getattr(server, "url", ""),
                     }
 
                 logger.info(f"Added MCP server: {name} ({server_type})")
@@ -393,8 +426,8 @@ class ClaudeAcpAgent(Agent):
             logger.info(f"Session {session_id} completed: {message.subtype}")
 
         elif isinstance(message, UserMessage):
-            # User messages from history - usually skip
-            pass
+            # User messages may contain tool results
+            await self._handle_user_message(session_id, message, session)
 
     async def _handle_assistant_message(
         self, session_id: str, message: AssistantMessage, session: Session
@@ -405,7 +438,23 @@ class ClaudeAcpAgent(Agent):
 
         for block in message.content:
             if isinstance(block, TextBlock):
-                # Text content
+                # Skip if this text was already sent via streaming
+                if session.streamed_text and block.text == session.streamed_text:
+                    # Clear streamed_text for next turn
+                    session.streamed_text = ""
+                    continue
+                # If partially streamed, only send the remaining part
+                if session.streamed_text and block.text.startswith(session.streamed_text):
+                    remaining = block.text[len(session.streamed_text):]
+                    session.streamed_text = ""
+                    if remaining:
+                        await self._conn.session_update(
+                            session_id,
+                            update_agent_message(text_block(remaining)),
+                        )
+                    continue
+                # Clear any streamed text and send full message
+                session.streamed_text = ""
                 await self._conn.session_update(
                     session_id,
                     update_agent_message(text_block(block.text)),
@@ -445,6 +494,27 @@ class ClaudeAcpAgent(Agent):
                     ),
                 )
 
+    async def _handle_user_message(
+        self, session_id: str, message: UserMessage, session: Session
+    ) -> None:
+        """Handle a user message (which may contain tool results)."""
+        if self._conn is None:
+            return
+
+        for block in message.content:
+            if isinstance(block, ToolResultBlock):
+                # Tool result
+                status = "failed" if block.is_error else "completed"
+
+                await self._conn.session_update(
+                    session_id,
+                    update_tool_call(
+                        tool_call_id=block.tool_use_id,
+                        status=status,
+                        raw_output=block.content,
+                    ),
+                )
+
     async def _handle_stream_event(self, session_id: str, event: StreamEvent) -> None:
         """Handle a streaming event from Claude."""
         if self._conn is None:
@@ -460,6 +530,9 @@ class ClaudeAcpAgent(Agent):
             if delta_type == "text_delta":
                 text = delta.get("text", "")
                 if text:
+                    # Track streamed text to avoid duplicate in _handle_message
+                    if session_id in self._sessions:
+                        self._sessions[session_id].streamed_text += text
                     await self._conn.session_update(
                         session_id,
                         update_agent_message(text_block(text)),
@@ -551,9 +624,10 @@ class ClaudeAcpAgent(Agent):
                 },
             )
 
-            outcome = response.get("outcome", {})
-            if outcome.get("outcome") == "selected":
-                option_id = outcome.get("option_id")
+            # Handle RequestPermissionResponse object
+            outcome = response.outcome
+            if outcome and outcome.outcome == "selected":
+                option_id = outcome.option_id
                 if option_id in ["allow", "allow_always"]:
                     return PermissionResultAllow()
 

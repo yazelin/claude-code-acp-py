@@ -13,11 +13,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 
+from acp import spawn_agent_process
 from acp.client.connection import ClientSideConnection
 from acp.schema import (
     AgentMessageChunk,
     AgentThoughtChunk,
+    AllowedOutcome,
+    EnvVariable,
     Implementation,
+    McpServerStdio,
     PermissionOption,
     RequestPermissionResponse,
     TextContentBlock,
@@ -91,6 +95,7 @@ class AcpClient:
         args: list[str] | None = None,
         cwd: str = ".",
         env: dict[str, str] | None = None,
+        mcp_servers: list[dict] | None = None,
     ):
         """
         Initialize the ACP client.
@@ -100,11 +105,14 @@ class AcpClient:
             args: Additional arguments for the command.
             cwd: Working directory for the agent.
             env: Additional environment variables.
+            mcp_servers: List of MCP server configurations.
+                Each dict should have: name, command, args (list), env (optional dict).
         """
         self.command = command
         self.args = args or []
         self.cwd = cwd
         self.env = env
+        self.mcp_servers = mcp_servers or []
         self.events = AcpClientEvents()
 
         self._process: asyncio.subprocess.Process | None = None
@@ -258,13 +266,28 @@ class AcpClient:
                 pass
         self._terminals.clear()
 
+        # Close connection with timeout to avoid hanging
         if self._connection:
-            await self._connection.close()
+            try:
+                await asyncio.wait_for(self._connection.close(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Connection close timed out")
+            except Exception as e:
+                logger.debug(f"Connection close error (ignored): {e}")
             self._connection = None
 
+        # Terminate subprocess with timeout
         if self._process:
             self._process.terminate()
-            await self._process.wait()
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=3.0)
+            except asyncio.TimeoutError:
+                logger.warning("Process terminate timed out, killing")
+                self._process.kill()
+                try:
+                    await asyncio.wait_for(self._process.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Process kill timed out")
             self._process = None
 
         self._initialized = False
@@ -284,9 +307,25 @@ class AcpClient:
         if not self._connection:
             raise RuntimeError("Not connected")
 
+        # Convert MCP server configs to ACP schema
+        mcp_servers_acp = []
+        for srv in self.mcp_servers:
+            env_vars = []
+            if "env" in srv and srv["env"]:
+                for k, v in srv["env"].items():
+                    env_vars.append(EnvVariable(name=k, value=v))
+            mcp_servers_acp.append(
+                McpServerStdio(
+                    name=srv.get("name", "mcp"),
+                    command=srv.get("command", ""),
+                    args=srv.get("args", []),
+                    env=env_vars,
+                )
+            )
+
         response = await self._connection.new_session(
             cwd=self.cwd,
-            mcp_servers=[],
+            mcp_servers=mcp_servers_acp,
         )
         self._session_id = response.session_id
         return self._session_id
@@ -407,7 +446,7 @@ class AcpClient:
                     )
 
                 return RequestPermissionResponse(
-                    outcome={"outcome": "selected", "option_id": selected_id}
+                    outcome=AllowedOutcome(outcome="selected", option_id=selected_id)
                 )
 
             async def write_text_file(

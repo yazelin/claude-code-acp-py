@@ -50,14 +50,20 @@ class ClaudeClient:
         ```
     """
 
-    def __init__(self, cwd: str = "."):
+    def __init__(self, cwd: str = ".", mcp_servers: list | None = None, system_prompt: str | dict | None = None):
         """
         Initialize the Claude client.
 
         Args:
             cwd: Working directory for Claude operations.
+            mcp_servers: List of MCP server configurations.
+            system_prompt: Custom system prompt for Claude. Can be:
+                - str: Plain text system prompt
+                - dict: {"type": "preset", "preset": "claude_code", "append": "..."}
         """
         self.cwd = cwd
+        self.mcp_servers = mcp_servers or []
+        self.system_prompt = system_prompt
         self.agent = ClaudeAcpAgent()
         self.session_id: str | None = None
         self.events = ClaudeEvents()
@@ -179,7 +185,7 @@ class ClaudeClient:
         Returns:
             The session ID.
         """
-        session = await self.agent.new_session(cwd=self.cwd, mcp_servers=[])
+        session = await self.agent.new_session(cwd=self.cwd, mcp_servers=self.mcp_servers, system_prompt=self.system_prompt)
         self.session_id = session.session_id
         return self.session_id
 
@@ -241,6 +247,8 @@ class ClaudeClient:
         class EventHandler:
             async def session_update(self, session_id: str, update: Any) -> None:
                 update_type = type(update).__name__
+                import logging
+                logging.getLogger(__name__).debug(f"session_update: {update_type}")
 
                 if "AgentMessageChunk" in update_type:
                     content = getattr(update, "content", None)
@@ -250,9 +258,9 @@ class ClaudeClient:
                             return
 
                         # Smart deduplication for streaming:
-                        # - If buffer is empty, this is new text
-                        # - If text is already in buffer, skip (duplicate)
-                        # - If text extends buffer, only emit the new part
+                        # - If text == buffer, exact duplicate, skip
+                        # - If text extends buffer (cumulative), emit only new part
+                        # - Otherwise, this is a new delta chunk, append and emit
                         current_len = len(client._text_buffer)
 
                         if current_len == 0:
@@ -260,18 +268,18 @@ class ClaudeClient:
                             client._text_buffer = text
                             if client.events.on_text:
                                 await client.events.on_text(text)
-                        elif text in client._text_buffer:
+                        elif text == client._text_buffer:
                             # Exact duplicate, skip
                             pass
-                        elif client._text_buffer in text:
-                            # Text extends buffer - emit only new part
+                        elif text.startswith(client._text_buffer):
+                            # Cumulative update - text extends buffer, emit only new part
                             new_part = text[current_len:]
                             if new_part:
                                 client._text_buffer = text
                                 if client.events.on_text:
                                     await client.events.on_text(new_part)
                         else:
-                            # Completely new text chunk
+                            # New delta chunk - append to buffer
                             client._text_buffer += text
                             if client.events.on_text:
                                 await client.events.on_text(text)
