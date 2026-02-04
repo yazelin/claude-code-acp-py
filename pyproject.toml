@@ -1,6 +1,6 @@
 [project]
 name = "claude-code-acp"
-version = "0.2.0"
+version = "0.3.0"
 description = "ACP-compatible agent for Claude Code (Python version)"
 authors = [
     { name = "yazelin" },

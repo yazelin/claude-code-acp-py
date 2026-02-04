@@ -39,6 +39,16 @@ uv tool install claude-code-acp
 
 ---
 
+## Components
+
+| Class | Type | Description |
+|-------|------|-------------|
+| `ClaudeAcpAgent` | ACP Server | For editors (Zed, Neovim) to connect |
+| `ClaudeClient` | Python API | Event-driven wrapper (uses agent internally) |
+| `AcpClient` | ACP Client | Connect to any ACP agent via subprocess |
+
+---
+
 ## Usage 1: ACP Server for Editors
 
 Run as an ACP server to connect Claude to your editor:
@@ -141,6 +151,59 @@ response = await client.query("Your prompt here")
 # Set permission mode
 await client.set_mode("acceptEdits")  # or "default", "plan", "bypassPermissions"
 ```
+
+---
+
+## Usage 3: ACP Client (Connect to Any Agent)
+
+Use `AcpClient` to connect to any ACP-compatible agent:
+
+```python
+import asyncio
+from claude_code_acp import AcpClient
+
+async def main():
+    # Connect to claude-code-acp (Python version)
+    client = AcpClient(command="claude-code-acp")
+
+    # Or connect to the TypeScript version
+    # client = AcpClient(command="npx", args=["@zed-industries/claude-code-acp"])
+
+    # Or any other ACP agent
+    # client = AcpClient(command="my-custom-agent")
+
+    @client.on_text
+    async def handle_text(text: str):
+        print(text, end="", flush=True)
+
+    @client.on_tool_start
+    async def handle_tool(tool_id: str, name: str, input: dict):
+        print(f"\n🔧 {name}")
+
+    @client.on_permission
+    async def handle_permission(name: str, input: dict, options: list) -> str:
+        """Return option_id: 'allow', 'reject', or 'allow_always'"""
+        print(f"🔐 Permission: {name}")
+        return "allow"
+
+    @client.on_complete
+    async def handle_complete():
+        print("\n--- Done ---")
+
+    async with client:
+        response = await client.prompt("What files are here?")
+
+asyncio.run(main())
+```
+
+### AcpClient vs ClaudeClient
+
+| Feature | `ClaudeClient` | `AcpClient` |
+|---------|---------------|-------------|
+| Uses | Claude Agent SDK directly | Any ACP agent via subprocess |
+| Connection | In-process | Subprocess + stdio |
+| Agents | Claude only | Any ACP-compatible agent |
+| Use case | Simple Python apps | Multi-agent, testing, flexibility |
 
 ---
 

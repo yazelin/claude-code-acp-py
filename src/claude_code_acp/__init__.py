@@ -9,10 +9,19 @@ import asyncio
 
 from .agent import ClaudeAcpAgent
 from .client import ClaudeClient, ClaudeEvents
+from .acp_client import AcpClient, AcpClientEvents
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-__all__ = ["ClaudeAcpAgent", "ClaudeClient", "ClaudeEvents", "main", "run"]
+__all__ = [
+    "ClaudeAcpAgent",
+    "ClaudeClient",
+    "ClaudeEvents",
+    "AcpClient",
+    "AcpClientEvents",
+    "main",
+    "run",
+]
 
 
 async def run() -> None:
