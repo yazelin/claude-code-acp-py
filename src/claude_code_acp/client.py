@@ -1,0 +1,317 @@
+"""
+Event-driven Claude client wrapper.
+
+Provides a simple, decorator-based API for interacting with Claude.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from typing import Any, Callable, Coroutine
+
+from .agent import ClaudeAcpAgent
+
+
+@dataclass
+class ClaudeEvents:
+    """Event handlers for Claude responses."""
+
+    on_text: Callable[[str], Coroutine[Any, Any, None]] | None = None
+    on_thinking: Callable[[str], Coroutine[Any, Any, None]] | None = None
+    on_tool_start: Callable[[str, str, dict], Coroutine[Any, Any, None]] | None = None
+    on_tool_end: Callable[[str, str, Any], Coroutine[Any, Any, None]] | None = None
+    on_permission: Callable[[str, dict], Coroutine[Any, Any, bool]] | None = None
+    on_error: Callable[[Exception], Coroutine[Any, Any, None]] | None = None
+    on_complete: Callable[[], Coroutine[Any, Any, None]] | None = None
+
+
+class ClaudeClient:
+    """
+    Event-driven Claude client using ACP.
+
+    Example:
+        ```python
+        client = ClaudeClient(cwd="/path/to/project")
+
+        @client.on_text
+        async def handle_text(text):
+            print(text, end="", flush=True)
+
+        @client.on_tool_start
+        async def handle_tool(tool_id, name, input):
+            print(f"Running: {name}")
+
+        @client.on_permission
+        async def handle_permission(name, input):
+            return True  # or prompt user
+
+        response = await client.query("What files are in this directory?")
+        ```
+    """
+
+    def __init__(self, cwd: str = "."):
+        """
+        Initialize the Claude client.
+
+        Args:
+            cwd: Working directory for Claude operations.
+        """
+        self.cwd = cwd
+        self.agent = ClaudeAcpAgent()
+        self.session_id: str | None = None
+        self.events = ClaudeEvents()
+        self._text_buffer = ""
+        self._seen_text = set()  # Track seen text to avoid duplicates
+
+    # --- Decorator-based event registration ---
+
+    def on_text(self, func: Callable[[str], Coroutine[Any, Any, None]]):
+        """
+        Register handler for text responses.
+
+        The handler receives streaming text chunks as they arrive.
+
+        Example:
+            @client.on_text
+            async def handle_text(text: str):
+                print(text, end="", flush=True)
+        """
+        self.events.on_text = func
+        return func
+
+    def on_thinking(self, func: Callable[[str], Coroutine[Any, Any, None]]):
+        """
+        Register handler for thinking/reasoning blocks.
+
+        Example:
+            @client.on_thinking
+            async def handle_thinking(text: str):
+                print(f"[Thinking: {text}]")
+        """
+        self.events.on_thinking = func
+        return func
+
+    def on_tool_start(
+        self, func: Callable[[str, str, dict], Coroutine[Any, Any, None]]
+    ):
+        """
+        Register handler for tool call start events.
+
+        Args to handler:
+            tool_id: Unique identifier for the tool call
+            name: Human-readable tool name/title
+            input: Tool input parameters
+
+        Example:
+            @client.on_tool_start
+            async def handle_tool_start(tool_id: str, name: str, input: dict):
+                print(f"🔧 Starting: {name}")
+        """
+        self.events.on_tool_start = func
+        return func
+
+    def on_tool_end(self, func: Callable[[str, str, Any], Coroutine[Any, Any, None]]):
+        """
+        Register handler for tool completion events.
+
+        Args to handler:
+            tool_id: Unique identifier for the tool call
+            status: "completed" or "failed"
+            output: Tool output/result
+
+        Example:
+            @client.on_tool_end
+            async def handle_tool_end(tool_id: str, status: str, output: Any):
+                icon = "✅" if status == "completed" else "❌"
+                print(f" {icon}")
+        """
+        self.events.on_tool_end = func
+        return func
+
+    def on_permission(
+        self, func: Callable[[str, dict], Coroutine[Any, Any, bool]]
+    ):
+        """
+        Register handler for permission requests.
+
+        The handler should return True to allow, False to deny.
+
+        Example:
+            @client.on_permission
+            async def handle_permission(name: str, input: dict) -> bool:
+                response = input("Allow {name}? [y/N]: ")
+                return response.lower() == "y"
+        """
+        self.events.on_permission = func
+        return func
+
+    def on_error(self, func: Callable[[Exception], Coroutine[Any, Any, None]]):
+        """
+        Register handler for errors.
+
+        Example:
+            @client.on_error
+            async def handle_error(e: Exception):
+                print(f"Error: {e}")
+        """
+        self.events.on_error = func
+        return func
+
+    def on_complete(self, func: Callable[[], Coroutine[Any, Any, None]]):
+        """
+        Register handler for query completion.
+
+        Example:
+            @client.on_complete
+            async def handle_complete():
+                print("\\n--- Done ---")
+        """
+        self.events.on_complete = func
+        return func
+
+    # --- Main API ---
+
+    async def start_session(self) -> str:
+        """
+        Start a new Claude session.
+
+        Returns:
+            The session ID.
+        """
+        session = await self.agent.new_session(cwd=self.cwd, mcp_servers=[])
+        self.session_id = session.session_id
+        return self.session_id
+
+    async def query(self, prompt: str) -> str:
+        """
+        Send a query and receive events via registered handlers.
+
+        Args:
+            prompt: The message to send to Claude.
+
+        Returns:
+            The full text response as a string.
+
+        Example:
+            response = await client.query("Explain this code")
+            print(f"Full response: {response}")
+        """
+        if not self.session_id:
+            await self.start_session()
+
+        self._text_buffer = ""
+        self._seen_text = set()
+
+        # Wire up the event handler
+        self.agent._conn = self._create_event_handler()
+
+        try:
+            await self.agent.prompt(
+                prompt=[{"type": "text", "text": prompt}],
+                session_id=self.session_id,
+            )
+
+            if self.events.on_complete:
+                await self.events.on_complete()
+
+        except Exception as e:
+            if self.events.on_error:
+                await self.events.on_error(e)
+            raise
+
+        return self._text_buffer
+
+    async def set_mode(self, mode: str) -> None:
+        """
+        Set the permission mode for the session.
+
+        Args:
+            mode: One of "default", "acceptEdits", "plan", "bypassPermissions"
+        """
+        if not self.session_id:
+            await self.start_session()
+
+        await self.agent.set_session_mode(mode_id=mode, session_id=self.session_id)
+
+    def _create_event_handler(self):
+        """Create the internal event handler that bridges to user callbacks."""
+        client = self
+
+        class EventHandler:
+            async def session_update(self, session_id: str, update: Any) -> None:
+                update_type = type(update).__name__
+
+                if "AgentMessageChunk" in update_type:
+                    content = getattr(update, "content", None)
+                    if content and hasattr(content, "text"):
+                        text = content.text
+                        if not text:
+                            return
+
+                        # Smart deduplication for streaming:
+                        # - If buffer is empty, this is new text
+                        # - If text is already in buffer, skip (duplicate)
+                        # - If text extends buffer, only emit the new part
+                        current_len = len(client._text_buffer)
+
+                        if current_len == 0:
+                            # First chunk
+                            client._text_buffer = text
+                            if client.events.on_text:
+                                await client.events.on_text(text)
+                        elif text in client._text_buffer:
+                            # Exact duplicate, skip
+                            pass
+                        elif client._text_buffer in text:
+                            # Text extends buffer - emit only new part
+                            new_part = text[current_len:]
+                            if new_part:
+                                client._text_buffer = text
+                                if client.events.on_text:
+                                    await client.events.on_text(new_part)
+                        else:
+                            # Completely new text chunk
+                            client._text_buffer += text
+                            if client.events.on_text:
+                                await client.events.on_text(text)
+
+                elif "AgentThoughtChunk" in update_type:
+                    content = getattr(update, "content", None)
+                    if content and hasattr(content, "text"):
+                        if client.events.on_thinking:
+                            await client.events.on_thinking(content.text)
+
+                elif "ToolCallStart" in update_type:
+                    if client.events.on_tool_start:
+                        await client.events.on_tool_start(
+                            getattr(update, "tool_call_id", ""),
+                            getattr(update, "title", ""),
+                            getattr(update, "raw_input", {}),
+                        )
+
+                elif "ToolCallProgress" in update_type:
+                    if client.events.on_tool_end:
+                        await client.events.on_tool_end(
+                            getattr(update, "tool_call_id", ""),
+                            getattr(update, "status", ""),
+                            getattr(update, "raw_output", None),
+                        )
+
+            async def request_permission(self, **kwargs: Any) -> dict:
+                tool_call = kwargs.get("tool_call", {})
+                name = tool_call.get("title", "Unknown")
+                raw_input = tool_call.get("raw_input", {})
+
+                approved = True
+                if client.events.on_permission:
+                    approved = await client.events.on_permission(name, raw_input)
+
+                if approved:
+                    return {"outcome": {"outcome": "selected", "option_id": "allow"}}
+                return {"outcome": {"outcome": "selected", "option_id": "reject"}}
+
+        return EventHandler()
+
+
+__all__ = ["ClaudeClient", "ClaudeEvents"]

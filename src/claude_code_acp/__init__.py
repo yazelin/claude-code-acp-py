@@ -8,10 +8,11 @@ allowing Claude Code to work with any ACP-compatible client like Zed, Neovim, et
 import asyncio
 
 from .agent import ClaudeAcpAgent
+from .client import ClaudeClient, ClaudeEvents
 
 __version__ = "0.1.0"
 
-__all__ = ["ClaudeAcpAgent", "main", "run"]
+__all__ = ["ClaudeAcpAgent", "ClaudeClient", "ClaudeEvents", "main", "run"]
 
 
 async def run() -> None:
