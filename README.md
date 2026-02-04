@@ -265,6 +265,99 @@ async def handle_output(terminal_id: str, output: str) -> None:
 | Gemini CLI | `gemini --experimental-acp` | ✅ Works |
 | TypeScript version | `npx @zed-industries/claude-code-acp` | ✅ Compatible |
 
+### Gemini ACP Usage
+
+**Important:** Gemini takes ~12 seconds to initialize on first connection.
+
+```python
+import asyncio
+from claude_code_acp import AcpClient
+
+async def main():
+    client = AcpClient(
+        command="gemini",
+        args=["--experimental-acp"],
+        cwd="/tmp",
+    )
+
+    @client.on_text
+    async def on_text(text):
+        print(text, end="", flush=True)
+
+    @client.on_thinking
+    async def on_thinking(text):
+        print(f"[Thinking] {text[:50]}...")
+
+    # Note: connect() takes ~12s for Gemini initialization
+    async with client:
+        response = await client.prompt("Hello!")
+        print(f"\nResponse: {response}")
+
+asyncio.run(main())
+```
+
+### Gemini with MCP Servers
+
+Gemini requires MCP servers to be **pre-configured** via CLI (not via ACP protocol):
+
+```bash
+# 1. Add MCP server to Gemini config
+gemini mcp add nanobanana "uvx nanobanana"
+
+# 2. Verify it's configured
+gemini mcp list
+```
+
+Then use `--allowed-mcp-server-names` to enable it:
+
+```python
+import asyncio
+from claude_code_acp import AcpClient
+
+async def main():
+    client = AcpClient(
+        command="gemini",
+        args=[
+            "--experimental-acp",
+            "--allowed-mcp-server-names", "nanobanana",  # Enable MCP server
+        ],
+        cwd="/tmp",
+    )
+
+    @client.on_text
+    async def on_text(text):
+        print(text, end="", flush=True)
+
+    async with client:
+        # Now Gemini can use nanobanana MCP tools
+        response = await client.prompt("Generate an image of a red circle")
+        print(f"\nResponse: {response}")
+
+asyncio.run(main())
+```
+
+### MCP Configuration Comparison
+
+| Agent | Dynamic MCP (via ACP) | Pre-configured MCP |
+|-------|----------------------|-------------------|
+| claude-code-acp | ✅ Supported | ✅ Supported |
+| Gemini CLI | ❌ Not supported | ✅ Use `--allowed-mcp-server-names` |
+
+**claude-code-acp** supports dynamic MCP configuration:
+
+```python
+client = AcpClient(
+    command="claude-code-acp",
+    cwd="/tmp",
+    mcp_servers=[{
+        "name": "nanobanana",
+        "command": "uvx",
+        "args": ["nanobanana"],
+        "env": {"GEMINI_API_KEY": "your-key"},
+    }],
+)
+```
+
 ---
 
 ## Architecture
