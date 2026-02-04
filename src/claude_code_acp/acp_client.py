@@ -381,6 +381,16 @@ class AcpClient:
             session_id=self._session_id,
         )
 
+    async def set_model(self, model: str) -> None:
+        """Set the model for the current session."""
+        if not self._connection or not self._session_id:
+            raise RuntimeError("No active session")
+
+        await self._connection.set_session_model(
+            model_id=model,
+            session_id=self._session_id,
+        )
+
     # --- Internal handlers ---
 
     def _create_client_handler(self):

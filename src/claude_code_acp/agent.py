@@ -75,6 +75,8 @@ class Session:
     tool_use_cache: dict[str, ToolUseBlock] = field(default_factory=dict)
     mcp_servers: dict[str, Any] = field(default_factory=dict)
     system_prompt: str | dict | None = None
+    # Model to use for this session
+    model: str | None = None
     # Keep client alive for multi-turn conversations
     client: ClaudeSDKClient | None = None
     client_started: bool = False
@@ -245,6 +247,7 @@ class ClaudeAcpAgent(Agent):
             include_partial_messages=True,
             mcp_servers=session.mcp_servers if session.mcp_servers else {},
             system_prompt=session.system_prompt,
+            model=session.model,
         )
 
         # Add permission callback if not bypassing permissions
@@ -255,6 +258,7 @@ class ClaudeAcpAgent(Agent):
                 include_partial_messages=True,
                 mcp_servers=session.mcp_servers if session.mcp_servers else {},
                 system_prompt=session.system_prompt,
+                model=session.model,
                 can_use_tool=self._create_permission_handler(session_id),
             )
 
@@ -739,11 +743,24 @@ class ClaudeAcpAgent(Agent):
         session_id: str,
         **kwargs: Any,
     ):
-        """Set the model for a session (stub - Claude CLI handles model selection)."""
+        """Set the model for a session."""
         from acp.schema import SetSessionModelResponse
 
-        logger.info(f"Model change requested for session {session_id}: {model_id}")
-        # Note: Claude CLI handles model selection, this is just for compatibility
+        session = self._sessions.get(session_id)
+        if session:
+            logger.info(f"Setting model for session {session_id}: {model_id}")
+            session.model = model_id
+            # Close existing client so next prompt creates a fresh one with the new model
+            if session.client and session.client_started:
+                try:
+                    await session.client.__aexit__(None, None, None)
+                except Exception as e:
+                    logger.warning(f"Error closing client: {e}")
+                session.client = None
+                session.client_started = False
+        else:
+            logger.warning(f"Session not found for model change: {session_id}")
+
         return SetSessionModelResponse()
 
     # --- Extension Methods ---
