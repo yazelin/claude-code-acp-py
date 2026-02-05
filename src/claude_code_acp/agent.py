@@ -241,6 +241,12 @@ class ClaudeAcpAgent(Agent):
         logger.info(f"Prompt for session {session_id}: {prompt_text[:100]}...")
 
         # Build Claude options with MCP servers and permission callback
+        # Use --strict-mcp-config when MCP servers are provided to ensure only
+        # the specified servers are loaded (ignoring user/project configs)
+        extra_args = {}
+        if session.mcp_servers:
+            extra_args["strict-mcp-config"] = None
+
         options = ClaudeAgentOptions(
             cwd=session.cwd,
             permission_mode=session.permission_mode,
@@ -248,6 +254,7 @@ class ClaudeAcpAgent(Agent):
             mcp_servers=session.mcp_servers if session.mcp_servers else {},
             system_prompt=session.system_prompt,
             model=session.model,
+            extra_args=extra_args,
         )
 
         # Add permission callback if not bypassing permissions
@@ -259,6 +266,7 @@ class ClaudeAcpAgent(Agent):
                 mcp_servers=session.mcp_servers if session.mcp_servers else {},
                 system_prompt=session.system_prompt,
                 model=session.model,
+                extra_args=extra_args,
                 can_use_tool=self._create_permission_handler(session_id),
             )
 
