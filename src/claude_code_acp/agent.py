@@ -28,19 +28,24 @@ from acp.interfaces import Client
 from acp.schema import (
     AgentCapabilities,
     AudioContentBlock,
+    AvailableCommand,
+    AvailableCommandInput,
     ClientCapabilities,
     EmbeddedResourceContentBlock,
     HttpMcpServer,
     ImageContentBlock,
     Implementation,
     McpServerStdio,
+    ModelInfo,
     PermissionOption,
     PromptCapabilities,
     ResourceContentBlock,
     SessionCapabilities,
+    SessionModelState,
     SseMcpServer,
     TextContentBlock,
 )
+from acp.helpers import update_available_commands
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -82,6 +87,8 @@ class Session:
     client_started: bool = False
     # Track streamed text to avoid duplicate sends
     streamed_text: str = ""
+    # Server info from get_server_info() - contains commands, models, etc.
+    server_info: dict[str, Any] | None = None
 
 
 class ClaudeAcpAgent(Agent):
@@ -149,22 +156,37 @@ class ClaudeAcpAgent(Agent):
         **kwargs: Any,
     ) -> NewSessionResponse:
         """Create a new Claude session."""
+        import asyncio
+
         session_id = str(uuid4())
 
         # Convert ACP MCP servers to Claude SDK format
         sdk_mcp_servers = self._convert_mcp_servers(mcp_servers)
+
+        # Create a temporary client to get server info (commands, models)
+        server_info = await self._get_server_info(cwd, sdk_mcp_servers, system_prompt)
 
         self._sessions[session_id] = Session(
             session_id=session_id,
             cwd=cwd,
             mcp_servers=sdk_mcp_servers,
             system_prompt=system_prompt,
+            server_info=server_info,
         )
 
         logger.info(f"New session created: {session_id} in {cwd} with {len(sdk_mcp_servers)} MCP servers")
 
+        # Build models state from server_info
+        models_state = self._build_models_state(server_info)
+
+        # Schedule sending AvailableCommandsUpdate after returning response
+        # (similar to TypeScript's setTimeout approach)
+        if self._conn is not None and server_info:
+            asyncio.create_task(self._send_available_commands(session_id, server_info))
+
         return NewSessionResponse(
             session_id=session_id,
+            models=models_state,
             modes={
                 "current_mode_id": "default",
                 "available_modes": [
@@ -646,6 +668,130 @@ class ClaudeAcpAgent(Agent):
             return PermissionResultDeny(message="User denied permission")
 
         return can_use_tool
+
+    async def _get_server_info(
+        self,
+        cwd: str,
+        mcp_servers: dict[str, Any],
+        system_prompt: str | dict | None,
+    ) -> dict[str, Any] | None:
+        """Get server info (commands, models) by creating a temporary client."""
+        try:
+            extra_args = {}
+            if mcp_servers:
+                extra_args["strict-mcp-config"] = None
+
+            options = ClaudeAgentOptions(
+                cwd=cwd,
+                mcp_servers=mcp_servers if mcp_servers else {},
+                system_prompt=system_prompt,
+                extra_args=extra_args,
+            )
+
+            client = ClaudeSDKClient(options)
+            await client.connect()
+
+            try:
+                server_info = await client.get_server_info()
+                logger.info(f"Got server info: {len(server_info.get('commands', []))} commands, {len(server_info.get('models', []))} models")
+                return server_info
+            finally:
+                await client.disconnect()
+
+        except Exception as e:
+            logger.warning(f"Failed to get server info: {e}")
+            return None
+
+    def _build_models_state(self, server_info: dict[str, Any] | None) -> SessionModelState | None:
+        """Build SessionModelState from server_info."""
+        if server_info is None or "models" not in server_info:
+            return None
+
+        models_data = server_info.get("models", [])
+        if not models_data:
+            return None
+
+        available_models = []
+        current_model_id = "default"
+
+        for model in models_data:
+            model_id = model.get("value", "")
+            available_models.append(
+                ModelInfo(
+                    model_id=model_id,
+                    name=model.get("displayName", model_id),
+                    description=model.get("description"),
+                )
+            )
+            # First model is usually the default
+            if not current_model_id or model_id == "default":
+                current_model_id = model_id
+
+        if not available_models:
+            return None
+
+        return SessionModelState(
+            available_models=available_models,
+            current_model_id=current_model_id,
+        )
+
+    async def _send_available_commands(
+        self,
+        session_id: str,
+        server_info: dict[str, Any],
+    ) -> None:
+        """Send AvailableCommandsUpdate to the ACP client."""
+        if self._conn is None:
+            return
+
+        commands_data = server_info.get("commands", [])
+        if not commands_data:
+            return
+
+        # Filter out some commands that don't work well in ACP context
+        unsupported_commands = {
+            "cost",
+            "keybindings-help",
+            "login",
+            "logout",
+            "output-style:new",
+            "release-notes",
+            "todos",
+        }
+
+        available_commands: list[AvailableCommand] = []
+        for cmd in commands_data:
+            name = cmd.get("name", "")
+            if name in unsupported_commands:
+                continue
+
+            # Handle MCP commands (name ends with " (MCP)")
+            if name.endswith(" (MCP)"):
+                name = f"mcp:{name.replace(' (MCP)', '')}"
+
+            # Build input specification if argumentHint is present
+            cmd_input = None
+            argument_hint = cmd.get("argumentHint", "")
+            if argument_hint:
+                cmd_input = AvailableCommandInput(root={"hint": argument_hint})
+
+            available_commands.append(
+                AvailableCommand(
+                    name=name,
+                    description=cmd.get("description", ""),
+                    input=cmd_input,
+                )
+            )
+
+        if available_commands:
+            try:
+                await self._conn.session_update(
+                    session_id,
+                    update_available_commands(available_commands),
+                )
+                logger.info(f"Sent {len(available_commands)} available commands for session {session_id}")
+            except Exception as e:
+                logger.warning(f"Failed to send available commands: {e}")
 
     # --- Additional ACP Methods ---
 
