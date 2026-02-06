@@ -290,6 +290,10 @@ class AcpClient:
                     await asyncio.wait_for(self._process.wait(), timeout=2.0)
                 except asyncio.TimeoutError:
                     logger.warning("Process kill timed out")
+            # Close pipes to prevent 'Event loop is closed' errors during GC
+            for pipe in (self._process.stdin, self._process.stdout, self._process.stderr):
+                if pipe:
+                    pipe.close()
             self._process = None
 
         self._initialized = False
