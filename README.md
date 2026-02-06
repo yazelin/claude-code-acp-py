@@ -6,19 +6,32 @@
 
 **Python implementation of ACP (Agent Client Protocol) for Claude Code.**
 
-This package bridges the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) with the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/), providing two ways to use Claude:
+This package combines the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) with the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) to provide a complete Python solution for working with AI agents.
 
-1. **ACP Server** - Connect Claude to any ACP-compatible editor (Zed, Neovim, JetBrains, etc.)
-2. **Python Client** - Event-driven API for building Python applications with Claude
+## What It Does
+
+| Component | Type | Description |
+|-----------|------|-------------|
+| `ClaudeAcpAgent` | ACP Server | Lets editors (Zed, Neovim, JetBrains) use Claude |
+| `ClaudeClient` | Python API | Event-driven wrapper for building Python apps with Claude |
+| `AcpClient` | ACP Client | Connect to **any** ACP-compatible agent (Claude, Gemini, custom) |
+| `AcpProxyServer` | Copilot Proxy | Bridge Copilot SDK to any ACP backend |
+
+Two CLI commands:
+- **`claude-code-acp`** - ACP server for editors
+- **`copilot-acp-proxy`** - Copilot SDK proxy to ACP backends
 
 ## Features
 
-- **Uses Claude CLI subscription** - No API key needed, uses your existing Claude subscription
-- **Full ACP protocol support** - Compatible with Zed, Neovim, and other ACP clients
-- **Bidirectional communication** - Permission requests, tool calls, streaming responses
-- **Event-driven Python API** - Decorator-based handlers for easy integration
+- **Uses Claude CLI subscription** - No API key needed
+- **Full ACP protocol** - Compatible with Zed, Neovim, and other ACP clients
+- **Universal ACP client** - Connect to any ACP agent (Claude, Gemini, or custom)
+- **Copilot SDK bridge** - Use Copilot SDK with any ACP backend
+- **Bidirectional communication** - Permission requests, tool calls, streaming
+- **Event-driven Python API** - Decorator-based handlers
 - **Session management** - Create, fork, resume, list sessions
-- **Multiple permission modes** - default, acceptEdits, plan, bypassPermissions
+- **MCP server support** - Dynamic loading via stdio, HTTP, SSE
+- **Model & command enumeration** - Discover available models and commands at runtime
 
 ## Installation
 
@@ -39,19 +52,9 @@ uv tool install claude-code-acp
 
 ---
 
-## Components
-
-| Class | Type | Description |
-|-------|------|-------------|
-| `ClaudeAcpAgent` | ACP Server | For editors (Zed, Neovim) to connect |
-| `ClaudeClient` | Python API | Event-driven wrapper (uses agent internally) |
-| `AcpClient` | ACP Client | Connect to any ACP agent via subprocess |
-
----
-
 ## Usage 1: ACP Server for Editors
 
-Run as an ACP server to connect Claude to your editor:
+Run as an ACP server so editors can use Claude:
 
 ```bash
 claude-code-acp
@@ -91,36 +94,30 @@ import asyncio
 from claude_code_acp import ClaudeClient
 
 async def main():
-    client = ClaudeClient(cwd=".")
+    client = ClaudeClient(cwd=".", system_prompt="You are a helpful assistant.")
 
     @client.on_text
     async def handle_text(text: str):
-        """Called for each text chunk from Claude."""
         print(text, end="", flush=True)
 
     @client.on_tool_start
     async def handle_tool_start(tool_id: str, name: str, input: dict):
-        """Called when Claude starts using a tool."""
-        print(f"\n🔧 {name}")
+        print(f"\n[Tool] {name}")
 
     @client.on_tool_end
     async def handle_tool_end(tool_id: str, status: str, output):
-        """Called when a tool completes."""
-        icon = "✅" if status == "completed" else "❌"
-        print(f" {icon}")
+        icon = "ok" if status == "completed" else "fail"
+        print(f" [{icon}]")
 
     @client.on_permission
     async def handle_permission(name: str, input: dict) -> bool:
-        """Called when Claude needs permission. Return True to allow."""
-        print(f"🔐 Permission requested: {name}")
+        print(f"Permission requested: {name}")
         return True  # or prompt user
 
     @client.on_complete
     async def handle_complete():
-        """Called when the query completes."""
         print("\n--- Done ---")
 
-    # Send a query
     response = await client.query("Create a hello.py file that prints Hello World")
     print(f"\nFull response: {response}")
 
@@ -131,7 +128,7 @@ asyncio.run(main())
 
 | Decorator | Arguments | Description |
 |-----------|-----------|-------------|
-| `@client.on_text` | `(text: str)` | Streaming text chunks from Claude |
+| `@client.on_text` | `(text: str)` | Streaming text chunks |
 | `@client.on_thinking` | `(text: str)` | Thinking/reasoning blocks |
 | `@client.on_tool_start` | `(tool_id, name, input)` | Tool execution started |
 | `@client.on_tool_end` | `(tool_id, status, output)` | Tool execution completed |
@@ -142,6 +139,9 @@ asyncio.run(main())
 ### Client Methods
 
 ```python
+# Init with optional MCP servers and system prompt
+client = ClaudeClient(cwd=".", mcp_servers=[...], system_prompt="...")
+
 # Start a new session
 session_id = await client.start_session()
 
@@ -156,21 +156,15 @@ await client.set_mode("acceptEdits")  # or "default", "plan", "bypassPermissions
 
 ## Usage 3: ACP Client (Connect to Any Agent)
 
-Use `AcpClient` to connect to any ACP-compatible agent:
+Since this package implements a full ACP client, you can use `AcpClient` to connect to **any** ACP-compatible agent - not just Claude.
 
 ```python
 import asyncio
 from claude_code_acp import AcpClient
 
 async def main():
-    # Connect to claude-code-acp (Python version)
+    # Connect to any ACP agent
     client = AcpClient(command="claude-code-acp")
-
-    # Or connect to the TypeScript version
-    # client = AcpClient(command="npx", args=["@zed-industries/claude-code-acp"])
-
-    # Or any other ACP agent
-    # client = AcpClient(command="my-custom-agent")
 
     @client.on_text
     async def handle_text(text: str):
@@ -178,12 +172,12 @@ async def main():
 
     @client.on_tool_start
     async def handle_tool(tool_id: str, name: str, input: dict):
-        print(f"\n🔧 {name}")
+        print(f"\n[Tool] {name}")
 
     @client.on_permission
     async def handle_permission(name: str, input: dict, options: list) -> str:
         """Return option_id: 'allow', 'reject', or 'allow_always'"""
-        print(f"🔐 Permission: {name}")
+        print(f"Permission: {name}")
         return "allow"
 
     @client.on_complete
@@ -201,51 +195,72 @@ asyncio.run(main())
 ```python
 from claude_code_acp import AcpClient
 
-# Connect to our Claude ACP server
+# Claude (this package)
 claude = AcpClient(command="claude-code-acp")
 
-# Connect to Gemini CLI
+# Gemini CLI
 gemini = AcpClient(command="gemini", args=["--experimental-acp"])
 
-# Connect to TypeScript version
+# TypeScript version
 ts_claude = AcpClient(command="npx", args=["@zed-industries/claude-code-acp"])
+
+# Any custom ACP agent
+custom = AcpClient(command="my-custom-agent")
 ```
+
+### Tested Agents
+
+| Agent | Command | Status |
+|-------|---------|--------|
+| claude-code-acp (this package) | `claude-code-acp` | Works |
+| Gemini CLI | `gemini --experimental-acp` | Works |
+| TypeScript version | `npx @zed-industries/claude-code-acp` | Compatible |
 
 ### File Operation Handlers
 
-AcpClient supports intercepting file read/write operations for security or custom handling:
+Intercept file read/write operations for security or custom handling:
 
 ```python
 @client.on_file_read
 async def handle_read(path: str) -> str | None:
-    """Intercept file reads. Return content to override, or None to proceed."""
-    print(f"📖 Reading: {path}")
-    return None  # Proceed with normal read
+    """Return content to override, or None to proceed normally."""
+    print(f"Reading: {path}")
+    return None
 
 @client.on_file_write
 async def handle_write(path: str, content: str) -> bool:
-    """Intercept file writes. Return True to allow, False to block."""
-    print(f"📝 Writing: {path}")
-    response = input("Allow write? [y/N]: ")
-    return response.lower() == "y"
+    """Return True to allow, False to block."""
+    print(f"Writing: {path}")
+    return input("Allow? [y/N]: ").lower() == "y"
 ```
 
 ### Terminal Operation Handlers
 
-AcpClient supports intercepting terminal/shell execution for security:
+Intercept shell execution for security:
 
 ```python
 @client.on_terminal_create
 async def handle_terminal(command: str, cwd: str) -> bool:
-    """Intercept shell commands. Return True to allow, False to block."""
-    print(f"🖥️ Command: {command} in {cwd}")
-    response = input("Allow execution? [y/N]: ")
-    return response.lower() == "y"
+    """Return True to allow, False to block."""
+    print(f"Command: {command} in {cwd}")
+    return input("Allow? [y/N]: ").lower() == "y"
 
 @client.on_terminal_output
 async def handle_output(terminal_id: str, output: str) -> None:
-    """Receive terminal output in real-time."""
     print(output, end="")
+```
+
+### Model Selection
+
+```python
+# Set model before connecting (pending)
+client = AcpClient(command="claude-code-acp")
+client.set_model("opus")  # Will be applied when session starts
+
+# Or set model on active session
+async with client:
+    await client.set_model("sonnet")
+    response = await client.prompt("Hello!")
 ```
 
 ### AcpClient vs ClaudeClient
@@ -255,19 +270,69 @@ async def handle_output(terminal_id: str, output: str) -> None:
 | Uses | Claude Agent SDK directly | Any ACP agent via subprocess |
 | Connection | In-process | Subprocess + stdio |
 | Agents | Claude only | Any ACP-compatible agent |
+| File/Terminal hooks | No | Yes |
 | Use case | Simple Python apps | Multi-agent, testing, flexibility |
 
-### Tested Agents
+---
 
-| Agent | Command | Status |
-|-------|---------|--------|
-| claude-code-acp (this package) | `claude-code-acp` | ✅ Works |
-| Gemini CLI | `gemini --experimental-acp` | ✅ Works |
-| TypeScript version | `npx @zed-industries/claude-code-acp` | ✅ Compatible |
+## Usage 4: Copilot SDK Proxy
 
-### Gemini ACP Usage
+The `copilot-acp-proxy` command bridges the Copilot SDK to any ACP backend, allowing Copilot SDK applications to use Claude, Gemini, or other ACP agents.
 
-**Important:** Gemini takes ~12 seconds to initialize on first connection.
+```bash
+# Connect Copilot SDK to Gemini
+copilot-acp-proxy --headless --stdio --backend gemini
+
+# Connect Copilot SDK to Claude
+copilot-acp-proxy --headless --stdio --backend claude-code-acp
+
+# Connect Copilot SDK to Copilot CLI
+copilot-acp-proxy --headless --stdio --backend copilot
+```
+
+### Proxy with Copilot SDK (Python)
+
+```python
+import asyncio
+from copilot import CopilotClient
+
+async def main():
+    client = CopilotClient({"cli_path": "copilot-acp-proxy"})
+    await client.start()
+
+    session = await client.create_session({"model": "sonnet"})
+
+    def on_event(event):
+        event_type = event.type.value if hasattr(event.type, 'value') else str(event.type)
+        if event_type == "assistant.message_delta":
+            delta = getattr(event.data, 'deltaContent', None)
+            if delta:
+                print(delta, end="", flush=True)
+
+    session.on(on_event)
+    await session.send({"prompt": "Hello!"})
+
+asyncio.run(main())
+```
+
+### Supported Backends
+
+| Backend | Command | Model Examples |
+|---------|---------|---------------|
+| Gemini | `gemini` | gemini-2.0-flash, gemini-2.5-flash |
+| Claude | `claude-code-acp` | opus, sonnet |
+| Copilot | `copilot` | gpt-4, gpt-4o |
+
+Environment variables:
+- `ACP_PROXY_BACKEND` - Default backend (default: gemini)
+- `ACP_PROXY_LOG_LEVEL` - Log level (none/error/warning/info/debug/all)
+- `ACP_PROXY_LOG_FILE` - Log file path
+
+---
+
+## Gemini ACP Usage
+
+**Note:** Gemini takes ~12 seconds to initialize on first connection.
 
 ```python
 import asyncio
@@ -288,7 +353,6 @@ async def main():
     async def on_thinking(text):
         print(f"[Thinking] {text[:50]}...")
 
-    # Note: connect() takes ~12s for Gemini initialization
     async with client:
         response = await client.prompt("Hello!")
         print(f"\nResponse: {response}")
@@ -298,50 +362,32 @@ asyncio.run(main())
 
 ### Gemini with MCP Servers
 
-Gemini requires MCP servers to be **pre-configured** via CLI (not via ACP protocol):
+Gemini requires MCP servers to be **pre-configured** via CLI:
 
 ```bash
-# 1. Add MCP server to Gemini config
+# Add MCP server to Gemini config
 gemini mcp add nanobanana "uvx nanobanana"
 
-# 2. Verify it's configured
+# Verify
 gemini mcp list
 ```
 
-Then use `--allowed-mcp-server-names` to enable it:
+Then enable via `--allowed-mcp-server-names`:
 
 ```python
-import asyncio
-from claude_code_acp import AcpClient
-
-async def main():
-    client = AcpClient(
-        command="gemini",
-        args=[
-            "--experimental-acp",
-            "--allowed-mcp-server-names", "nanobanana",  # Enable MCP server
-        ],
-        cwd="/tmp",
-    )
-
-    @client.on_text
-    async def on_text(text):
-        print(text, end="", flush=True)
-
-    async with client:
-        # Now Gemini can use nanobanana MCP tools
-        response = await client.prompt("Generate an image of a red circle")
-        print(f"\nResponse: {response}")
-
-asyncio.run(main())
+client = AcpClient(
+    command="gemini",
+    args=["--experimental-acp", "--allowed-mcp-server-names", "nanobanana"],
+    cwd="/tmp",
+)
 ```
 
 ### MCP Configuration Comparison
 
 | Agent | Dynamic MCP (via ACP) | Pre-configured MCP |
 |-------|----------------------|-------------------|
-| claude-code-acp | ✅ Supported | ✅ Supported |
-| Gemini CLI | ❌ Not supported | ✅ Use `--allowed-mcp-server-names` |
+| claude-code-acp | Supported | Supported |
+| Gemini CLI | Not supported | Use `--allowed-mcp-server-names` |
 
 **claude-code-acp** supports dynamic MCP configuration:
 
@@ -362,91 +408,70 @@ client = AcpClient(
 
 ## Architecture
 
-This package provides **three ways** to use Claude:
-
-### Method A: Editor via ACP (ClaudeAcpAgent)
-
-For Zed, Neovim, and other ACP-compatible editors:
-
 ```
-┌──────────┐      ACP Protocol      ┌─────────────────┐      SDK      ┌────────────┐
-│   Zed    │ ────── stdio ───────►  │ ClaudeAcpAgent  │ ──────────►   │ Claude CLI │
-│  Editor  │                        │  (ACP Server)   │               │            │
-└──────────┘                        └─────────────────┘               └────────────┘
-```
-
-### Method B: Python Direct (ClaudeClient)
-
-For Python apps that want simple, direct access to Claude (**no ACP protocol**):
-
-```
-┌──────────┐     direct call      ┌─────────────────┐      SDK      ┌────────────┐
-│  Python  │ ──── in-process ───► │  ClaudeClient   │ ──────────►   │ Claude CLI │
-│   App    │                      │                 │               │            │
-└──────────┘                      └─────────────────┘               └────────────┘
-```
-
-### Method C: Python via ACP (AcpClient)
-
-For Python apps that want to connect to **any** ACP-compatible agent:
-
-```
-┌──────────┐      ACP Protocol      ┌─────────────────┐
-│  Python  │ ────── stdio ───────►  │  Any ACP Agent  │
-│   App    │                        │                 │
-│          │                        │ • claude-code   │
-│ AcpClient│                        │ • gemini        │
-│          │                        │ • custom agents │
-└──────────┘                        └─────────────────┘
+                    ┌─────────────────────────────────────────┐
+                    │        Editors / ACP Clients            │
+                    │     (Zed, Neovim, JetBrains, etc.)      │
+                    └──────────────┬──────────────────────────┘
+                                   │ ACP (stdio)
+                                   ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    claude-code-acp                            │
+│                                                              │
+│  ┌────────────────┐  ┌─────────────┐  ┌───────────────────┐ │
+│  │ ClaudeAcpAgent │  │ ClaudeClient│  │    AcpClient      │ │
+│  │  (ACP Server)  │  │ (Python API)│  │  (ACP Client)     │ │
+│  └───────┬────────┘  └──────┬──────┘  └─────┬─────────────┘ │
+│          │                  │               │               │
+│          ▼                  ▼               ▼               │
+│     Claude CLI         Claude CLI     Any ACP Agent         │
+│    (Agent SDK)        (Agent SDK)    ┌──────────────┐       │
+│                                      │ claude-code  │       │
+│  ┌─────────────────────────────┐     │ gemini       │       │
+│  │    AcpProxyServer           │     │ custom agent │       │
+│  │  (copilot-acp-proxy)       │     └──────────────┘       │
+│  │  Copilot SDK → ACP backend │                             │
+│  └─────────────────────────────┘                             │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### Summary
+### Component Summary
 
-| Component | Uses ACP? | Purpose |
-|-----------|-----------|---------|
-| `ClaudeAcpAgent` | Yes (Server) | Let editors connect to Claude |
-| `ClaudeClient` | **No** | Simplest way for Python apps |
-| `AcpClient` | Yes (Client) | Connect to any ACP agent |
+| Component | Role | ACP? | Connects to |
+|-----------|------|------|-------------|
+| `ClaudeAcpAgent` | Server | Yes (Server) | Editors connect **to** it |
+| `ClaudeClient` | Python API | No | Claude CLI directly |
+| `AcpClient` | Client | Yes (Client) | Any ACP agent |
+| `AcpProxyServer` | Proxy | Translates | Copilot SDK <-> ACP backends |
 
 ---
 
 ## What We Built
 
-This project combines two official SDKs to create a complete Python solution:
-
-### Integrated Components
+This project integrates two official Anthropic SDKs:
 
 | Component | Source | Purpose |
 |-----------|--------|---------|
-| [Agent Client Protocol SDK](https://github.com/anthropics/agent-client-protocol) | Anthropic | ACP server/client protocol implementation |
-| [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) | Anthropic | Claude CLI wrapper with streaming support |
+| [Agent Client Protocol SDK](https://github.com/anthropics/agent-client-protocol) | Anthropic | ACP server/client protocol |
+| [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) | Anthropic | Claude CLI wrapper with streaming |
 
 ### Our Contributions
 
-1. **ClaudeAcpAgent** (`agent.py`)
-   - Bridges Claude Agent SDK with ACP protocol
-   - Converts Claude messages to ACP session updates
-   - Handles bidirectional permission requests
-   - Session management (create, fork, resume, list)
+1. **ClaudeAcpAgent** (`agent.py`) - ACP server bridging Claude Agent SDK with ACP protocol. Handles bidirectional permissions, session management, streaming, MCP servers, model/command enumeration.
 
-2. **ClaudeClient** (`client.py`)
-   - Event-driven Python API with decorators
-   - Smart text deduplication for streaming
-   - Simple permission handling
-   - Clean async/await interface
+2. **ClaudeClient** (`client.py`) - Event-driven Python API with decorator handlers, streaming text deduplication, and simple async/await interface.
 
-3. **ACP Server Entry Point**
-   - Standalone `claude-code-acp` command
-   - Direct integration with Zed and other ACP clients
-   - No configuration needed
+3. **AcpClient** (`acp_client.py`) - Full ACP client implementation that can connect to any ACP-compatible agent via subprocess. Includes file/terminal operation interception.
+
+4. **AcpProxyServer** (`proxy/`) - Copilot SDK compatibility layer. Translates Copilot SDK JSON-RPC protocol to ACP, enabling Copilot SDK apps to use Claude, Gemini, or other backends.
 
 ### Why This Package?
 
-| Approach | API Key | Subscription | ACP Support | Event-Driven |
-|----------|---------|--------------|-------------|--------------|
-| Anthropic API directly | ✅ Required | ❌ | ❌ | ❌ |
-| Claude Agent SDK | ❌ | ✅ Uses CLI | ❌ | Partial |
-| **claude-code-acp** | ❌ | ✅ Uses CLI | ✅ Full | ✅ Full |
+| Approach | API Key | Subscription | ACP Support | Multi-Agent | Event-Driven |
+|----------|---------|--------------|-------------|-------------|--------------|
+| Anthropic API directly | Required | No | No | No | No |
+| Claude Agent SDK | No | Uses CLI | No | No | Partial |
+| **claude-code-acp** | No | Uses CLI | Full | Yes | Full |
 
 ---
 
@@ -474,29 +499,6 @@ async def main():
 asyncio.run(main())
 ```
 
-### File Operations with Permission Control
-
-```python
-import asyncio
-from claude_code_acp import ClaudeClient
-
-async def main():
-    client = ClaudeClient(cwd="/path/to/project")
-
-    @client.on_text
-    async def on_text(text):
-        print(text, end="")
-
-    @client.on_permission
-    async def on_permission(name, input):
-        response = input(f"Allow '{name}'? [y/N]: ")
-        return response.lower() == "y"
-
-    await client.query("Refactor the main.py file to use async/await")
-
-asyncio.run(main())
-```
-
 ### Auto-approve Mode
 
 ```python
@@ -505,8 +507,6 @@ from claude_code_acp import ClaudeClient
 
 async def main():
     client = ClaudeClient(cwd=".")
-
-    # Bypass all permission checks
     await client.set_mode("bypassPermissions")
 
     @client.on_text
@@ -514,6 +514,32 @@ async def main():
         print(text, end="")
 
     await client.query("Create a complete Flask app with tests")
+
+asyncio.run(main())
+```
+
+### Multi-Agent Comparison
+
+```python
+import asyncio
+from claude_code_acp import AcpClient
+
+async def ask(agent_name, command, args, prompt):
+    client = AcpClient(command=command, args=args)
+
+    @client.on_text
+    async def on_text(text):
+        pass  # collect silently
+
+    async with client:
+        response = await client.prompt(prompt)
+        print(f"{agent_name}: {response[:100]}...")
+
+async def main():
+    await asyncio.gather(
+        ask("Claude", "claude-code-acp", [], "What is ACP?"),
+        ask("Gemini", "gemini", ["--experimental-acp"], "What is ACP?"),
+    )
 
 asyncio.run(main())
 ```
@@ -530,11 +556,15 @@ cd claude-code-acp-py
 # Install dependencies
 uv sync
 
-# Run locally
+# Run ACP server locally
 uv run claude-code-acp
 
+# Run Copilot proxy locally
+uv run copilot-acp-proxy --backend gemini
+
 # Run tests
-uv run python -c "from claude_code_acp import ClaudeClient; print('OK')"
+uv run pytest tests/test_unit_*.py -v        # Unit tests (fast)
+uv run pytest tests/ -m integration -v        # Integration tests (need Claude CLI)
 ```
 
 ---
