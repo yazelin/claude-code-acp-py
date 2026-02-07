@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Coroutine
 from uuid import uuid4
 
 from acp import (
@@ -105,6 +105,7 @@ class ClaudeAcpAgent(Agent):
     def __init__(self) -> None:
         self._conn: Client | None = None
         self._sessions: dict[str, Session] = {}
+        self._on_result: Callable[[ResultMessage], Coroutine[Any, Any, None]] | None = None
 
     def on_connect(self, conn: Client) -> None:
         """Called when an ACP client connects."""
@@ -458,6 +459,8 @@ class ClaudeAcpAgent(Agent):
         elif isinstance(message, ResultMessage):
             # Result message - session complete
             logger.info(f"Session {session_id} completed: {message.subtype}")
+            if self._on_result is not None:
+                await self._on_result(message)
 
         elif isinstance(message, UserMessage):
             # User messages may contain tool results
