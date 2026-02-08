@@ -24,6 +24,7 @@ class ClaudeEvents:
     on_permission: Callable[[str, dict], Coroutine[Any, Any, bool]] | None = None
     on_error: Callable[[Exception], Coroutine[Any, Any, None]] | None = None
     on_complete: Callable[[], Coroutine[Any, Any, None]] | None = None
+    on_result: Callable[[dict], Coroutine[Any, Any, None]] | None = None
 
 
 class ClaudeClient:
@@ -69,6 +70,10 @@ class ClaudeClient:
         self.events = ClaudeEvents()
         self._text_buffer = ""
         self._seen_text = set()  # Track seen text to avoid duplicates
+        # Token usage from the last query
+        self.input_tokens: int | None = None
+        self.output_tokens: int | None = None
+        self.total_cost_usd: float | None = None
 
     # --- Decorator-based event registration ---
 
@@ -176,6 +181,24 @@ class ClaudeClient:
         self.events.on_complete = func
         return func
 
+    def on_result(self, func: Callable[[dict], Coroutine[Any, Any, None]]):
+        """
+        Register handler for result/usage info.
+
+        The handler receives a dict with keys like:
+        - input_tokens, output_tokens (from usage)
+        - total_cost_usd
+        - duration_ms, duration_api_ms
+        - num_turns, is_error, result
+
+        Example:
+            @client.on_result
+            async def handle_result(info: dict):
+                print(f"Tokens: {info.get('input_tokens')}/{info.get('output_tokens')}")
+        """
+        self.events.on_result = func
+        return func
+
     # --- Main API ---
 
     async def start_session(self) -> str:
@@ -208,9 +231,33 @@ class ClaudeClient:
 
         self._text_buffer = ""
         self._seen_text = set()
+        self.input_tokens = None
+        self.output_tokens = None
+        self.total_cost_usd = None
 
         # Wire up the event handler
         self.agent._conn = self._create_event_handler()
+
+        # Wire up result callback for token usage
+        async def _handle_result(result_msg):
+            usage = result_msg.usage or {}
+            self.input_tokens = usage.get("input_tokens")
+            self.output_tokens = usage.get("output_tokens")
+            self.total_cost_usd = result_msg.total_cost_usd
+            if self.events.on_result:
+                info = {
+                    "input_tokens": self.input_tokens,
+                    "output_tokens": self.output_tokens,
+                    "total_cost_usd": self.total_cost_usd,
+                    "duration_ms": result_msg.duration_ms,
+                    "duration_api_ms": result_msg.duration_api_ms,
+                    "num_turns": result_msg.num_turns,
+                    "is_error": result_msg.is_error,
+                    "result": result_msg.result,
+                }
+                await self.events.on_result(info)
+
+        self.agent._on_result = _handle_result
 
         try:
             await self.agent.prompt(
@@ -239,6 +286,15 @@ class ClaudeClient:
             await self.start_session()
 
         await self.agent.set_session_mode(mode_id=mode, session_id=self.session_id)
+
+    async def set_model(self, model: str) -> None:
+        """Set the model for the current session."""
+        if not self.session_id:
+            await self.start_session()
+        await self.agent.set_session_model(
+            model_id=model,
+            session_id=self.session_id,
+        )
 
     def _create_event_handler(self):
         """Create the internal event handler that bridges to user callbacks."""
