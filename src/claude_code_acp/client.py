@@ -241,7 +241,12 @@ class ClaudeClient:
         # Wire up result callback for token usage
         async def _handle_result(result_msg):
             usage = result_msg.usage or {}
-            self.input_tokens = usage.get("input_tokens")
+            # 計算完整的 input tokens（含快取）
+            self.input_tokens = (
+                usage.get("input_tokens", 0)
+                + usage.get("cache_creation_input_tokens", 0)
+                + usage.get("cache_read_input_tokens", 0)
+            )
             self.output_tokens = usage.get("output_tokens")
             self.total_cost_usd = result_msg.total_cost_usd
             if self.events.on_result:
@@ -254,6 +259,7 @@ class ClaudeClient:
                     "num_turns": result_msg.num_turns,
                     "is_error": result_msg.is_error,
                     "result": result_msg.result,
+                    "usage": usage,
                 }
                 await self.events.on_result(info)
 
