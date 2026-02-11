@@ -920,6 +920,37 @@ class ClaudeAcpAgent(Agent):
 
         return SetSessionModelResponse()
 
+    # --- Lifecycle Methods ---
+
+    async def close_session(self, session_id: str) -> None:
+        """Close a specific session and clean up its client resources."""
+        session = self._sessions.pop(session_id, None)
+        if session is None:
+            return
+
+        if session.client and session.client_started:
+            try:
+                await session.client.__aexit__(None, None, None)
+            except Exception as e:
+                logger.warning(f"Error closing client for session {session_id}: {e}")
+            session.client = None
+            session.client_started = False
+
+        logger.info(f"Session {session_id} closed")
+
+    async def close(self) -> None:
+        """Close all sessions and clean up resources."""
+        session_ids = list(self._sessions.keys())
+        for session_id in session_ids:
+            await self.close_session(session_id)
+        logger.info("All sessions closed")
+
+    async def __aenter__(self) -> "ClaudeAcpAgent":
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.close()
+
     # --- Extension Methods ---
 
     async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:

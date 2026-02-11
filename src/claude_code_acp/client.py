@@ -199,6 +199,18 @@ class ClaudeClient:
         self.events.on_result = func
         return func
 
+    # --- Lifecycle ---
+
+    async def close(self) -> None:
+        """Close the client and clean up all resources."""
+        await self.agent.close()
+
+    async def __aenter__(self) -> "ClaudeClient":
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.close()
+
     # --- Main API ---
 
     async def start_session(self) -> str:

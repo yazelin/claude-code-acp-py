@@ -118,8 +118,9 @@ async def main():
     async def handle_complete():
         print("\n--- Done ---")
 
-    response = await client.query("Create a hello.py file that prints Hello World")
-    print(f"\nFull response: {response}")
+    async with client:
+        response = await client.query("Create a hello.py file that prints Hello World")
+        print(f"\nFull response: {response}")
 
 asyncio.run(main())
 ```
@@ -142,11 +143,14 @@ asyncio.run(main())
 # Init with optional MCP servers and system prompt
 client = ClaudeClient(cwd=".", mcp_servers=[...], system_prompt="...")
 
-# Start a new session
-session_id = await client.start_session()
+# Recommended: use async context manager for automatic cleanup
+async with client:
+    response = await client.query("Your prompt here")
 
-# Send a query (returns full response text)
+# Or manage lifecycle manually
+session_id = await client.start_session()
 response = await client.query("Your prompt here")
+await client.close()  # Clean up subprocess connections
 
 # Set permission mode
 await client.set_mode("acceptEdits")  # or "default", "plan", "bypassPermissions"
@@ -490,11 +494,12 @@ async def main():
     async def on_text(text):
         print(text, end="")
 
-    while True:
-        user_input = input("\nYou: ")
-        if user_input.lower() == "quit":
-            break
-        await client.query(user_input)
+    async with client:
+        while True:
+            user_input = input("\nYou: ")
+            if user_input.lower() == "quit":
+                break
+            await client.query(user_input)
 
 asyncio.run(main())
 ```
@@ -507,13 +512,14 @@ from claude_code_acp import ClaudeClient
 
 async def main():
     client = ClaudeClient(cwd=".")
-    await client.set_mode("bypassPermissions")
 
     @client.on_text
     async def on_text(text):
         print(text, end="")
 
-    await client.query("Create a complete Flask app with tests")
+    async with client:
+        await client.set_mode("bypassPermissions")
+        await client.query("Create a complete Flask app with tests")
 
 asyncio.run(main())
 ```

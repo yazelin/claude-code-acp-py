@@ -142,3 +142,27 @@ class TestClaudeClient:
 
         # The decorator should return the original function
         assert my_handler.__name__ == "my_handler"
+
+    @pytest.mark.asyncio
+    async def test_close(self):
+        """Test closing the client cleans up agent sessions."""
+        client = ClaudeClient(cwd="/tmp")
+
+        # Start a session
+        await client.start_session()
+        assert client.session_id is not None
+        assert client.session_id in client.agent._sessions
+
+        await client.close()
+
+        assert len(client.agent._sessions) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_context_manager(self):
+        """Test client as async context manager."""
+        async with ClaudeClient(cwd="/tmp") as client:
+            await client.start_session()
+            assert client.session_id in client.agent._sessions
+
+        # After exiting context, sessions should be cleaned up
+        assert len(client.agent._sessions) == 0

@@ -11,7 +11,7 @@ from .agent import ClaudeAcpAgent
 from .client import ClaudeClient, ClaudeEvents
 from .acp_client import AcpClient, AcpClientEvents
 
-__version__ = "0.4.1"
+__version__ = "0.4.4"
 
 __all__ = [
     "ClaudeAcpAgent",
@@ -27,8 +27,13 @@ __all__ = [
 async def run() -> None:
     """Run the Claude ACP agent."""
     from acp import run_agent
-    # Enable unstable protocol to support set_session_model
-    await run_agent(ClaudeAcpAgent(), use_unstable_protocol=True)
+
+    agent = ClaudeAcpAgent()
+    try:
+        # Enable unstable protocol to support set_session_model
+        await run_agent(agent, use_unstable_protocol=True)
+    finally:
+        await agent.close()
 
 
 def main() -> None:

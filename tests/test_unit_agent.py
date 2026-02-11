@@ -340,3 +340,47 @@ class TestAgentAsyncMethods:
         await agent.set_session_model(model_id="opus", session_id=session.session_id)
 
         assert agent._sessions[session.session_id].model == "opus"
+
+    @pytest.mark.asyncio
+    async def test_close_session(self):
+        """Test closing a session removes it from agent."""
+        agent = ClaudeAcpAgent()
+
+        session = await agent.new_session(cwd="/tmp", mcp_servers=[])
+        session_id = session.session_id
+        assert session_id in agent._sessions
+
+        await agent.close_session(session_id)
+
+        assert session_id not in agent._sessions
+
+    @pytest.mark.asyncio
+    async def test_close_session_nonexistent(self):
+        """Test closing a non-existent session does not raise."""
+        agent = ClaudeAcpAgent()
+
+        # Should not raise
+        await agent.close_session("non-existent")
+
+    @pytest.mark.asyncio
+    async def test_close_all_sessions(self):
+        """Test closing all sessions."""
+        agent = ClaudeAcpAgent()
+
+        await agent.new_session(cwd="/tmp", mcp_servers=[])
+        await agent.new_session(cwd="/home", mcp_servers=[])
+        assert len(agent._sessions) == 2
+
+        await agent.close()
+
+        assert len(agent._sessions) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_context_manager(self):
+        """Test agent as async context manager."""
+        async with ClaudeAcpAgent() as agent:
+            session = await agent.new_session(cwd="/tmp", mcp_servers=[])
+            assert session.session_id in agent._sessions
+
+        # After exiting context, sessions should be cleaned up
+        assert len(agent._sessions) == 0
