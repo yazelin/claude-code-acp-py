@@ -106,6 +106,10 @@ class ClaudeAcpAgent(Agent):
         self._conn: Client | None = None
         self._sessions: dict[str, Session] = {}
         self._on_result: Callable[[ResultMessage], Coroutine[Any, Any, None]] | None = None
+        # 由 ClaudeClient 設定，用於在工具執行前注入/修改參數
+        self._tool_input_transform: (
+            Callable[[str, dict[str, Any]], Coroutine[Any, Any, dict[str, Any] | None]] | None
+        ) = None
 
     def on_connect(self, conn: Client) -> None:
         """Called when an ACP client connects."""
@@ -606,6 +610,18 @@ class ClaudeAcpAgent(Agent):
     def _create_permission_handler(self, session_id: str):
         """Create a permission handler for bidirectional permission requests."""
 
+        async def _apply_tool_input_transform(
+            tool_name: str, tool_input: dict[str, Any],
+        ) -> dict[str, Any] | None:
+            """套用 tool input transform（如有設定）。"""
+            if self._tool_input_transform is None:
+                return None
+            try:
+                return await self._tool_input_transform(tool_name, tool_input)
+            except Exception as e:
+                logger.warning(f"tool_input_transform 失敗: {e}")
+                return None
+
         async def can_use_tool(
             tool_name: str,
             tool_input: dict[str, Any],
@@ -623,7 +639,8 @@ class ClaudeAcpAgent(Agent):
 
             # For certain modes, auto-allow
             if session.permission_mode == "bypassPermissions":
-                return PermissionResultAllow()
+                updated = await _apply_tool_input_transform(tool_name, tool_input)
+                return PermissionResultAllow(updated_input=updated)
 
             if session.permission_mode == "acceptEdits" and tool_name in [
                 "Write",
@@ -666,7 +683,8 @@ class ClaudeAcpAgent(Agent):
             if outcome and outcome.outcome == "selected":
                 option_id = outcome.option_id
                 if option_id in ["allow", "allow_always"]:
-                    return PermissionResultAllow()
+                    updated = await _apply_tool_input_transform(tool_name, tool_input)
+                    return PermissionResultAllow(updated_input=updated)
 
             return PermissionResultDeny(message="User denied permission")
 

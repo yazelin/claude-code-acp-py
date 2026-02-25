@@ -25,6 +25,7 @@ class ClaudeEvents:
     on_error: Callable[[Exception], Coroutine[Any, Any, None]] | None = None
     on_complete: Callable[[], Coroutine[Any, Any, None]] | None = None
     on_result: Callable[[dict], Coroutine[Any, Any, None]] | None = None
+    on_tool_input_transform: Callable[[str, dict], Coroutine[Any, Any, dict | None]] | None = None
 
 
 class ClaudeClient:
@@ -199,6 +200,31 @@ class ClaudeClient:
         self.events.on_result = func
         return func
 
+    def on_tool_input_transform(
+        self,
+        func: Callable[[str, dict], Coroutine[Any, Any, dict | None]],
+    ):
+        """
+        Register handler to transform tool input before execution.
+
+        Called after permission is granted, before the tool runs.
+        Use this to inject, override, or sanitize tool parameters
+        at the framework level (independent of LLM behavior).
+
+        The handler receives (tool_name, tool_input) and should return:
+        - dict: The modified input to use (replaces original)
+        - None: Keep the original input unchanged
+
+        Example:
+            @client.on_tool_input_transform
+            async def inject_user(name: str, input: dict) -> dict | None:
+                if name.startswith("mcp__my-server__"):
+                    return {**input, "user_id": current_user_id}
+                return None
+        """
+        self.events.on_tool_input_transform = func
+        return func
+
     # --- Lifecycle ---
 
     async def close(self) -> None:
@@ -249,6 +275,9 @@ class ClaudeClient:
 
         # Wire up the event handler
         self.agent._conn = self._create_event_handler()
+
+        # Wire up tool input transform（不走 ACP protocol，直接傳遞 Python 參考）
+        self.agent._tool_input_transform = self.events.on_tool_input_transform
 
         # Wire up result callback for token usage
         async def _handle_result(result_msg):
