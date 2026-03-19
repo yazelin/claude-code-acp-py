@@ -400,18 +400,28 @@ class ClaudeAcpAgent(Agent):
 
             elif isinstance(server, SseMcpServer):
                 name = server.name or name
-                sdk_servers[name] = {
+                server_cfg: dict = {
                     "type": "sse",
                     "url": server.url,
                 }
+                if server.headers:
+                    server_cfg["headers"] = {
+                        h.name: h.value for h in server.headers
+                    }
+                sdk_servers[name] = server_cfg
                 logger.info(f"Added MCP server: {name} (sse)")
 
             elif isinstance(server, HttpMcpServer):
                 name = server.name or name
-                sdk_servers[name] = {
+                server_cfg = {
                     "type": "http",
                     "url": server.url,
                 }
+                if server.headers:
+                    server_cfg["headers"] = {
+                        h.name: h.value for h in server.headers
+                    }
+                sdk_servers[name] = server_cfg
                 logger.info(f"Added MCP server: {name} (http)")
 
             elif isinstance(server, dict):
@@ -427,15 +437,21 @@ class ClaudeAcpAgent(Agent):
                         "env": server.get("env", {}),
                     }
                 elif server_type == "sse":
-                    sdk_servers[name] = {
+                    server_cfg = {
                         "type": "sse",
                         "url": server.get("url", ""),
                     }
+                    if server.get("headers"):
+                        server_cfg["headers"] = server["headers"]
+                    sdk_servers[name] = server_cfg
                 elif server_type == "http":
-                    sdk_servers[name] = {
+                    server_cfg = {
                         "type": "http",
                         "url": server.get("url", ""),
                     }
+                    if server.get("headers"):
+                        server_cfg["headers"] = server["headers"]
+                    sdk_servers[name] = server_cfg
 
                 logger.info(f"Added MCP server: {name} ({server_type})")
 
