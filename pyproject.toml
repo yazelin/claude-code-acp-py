@@ -26,6 +26,7 @@ dependencies = [
 [project.scripts]
 claude-code-acp = "claude_code_acp:main"
 copilot-acp-proxy = "claude_code_acp.proxy.cli:main"
+claude-acp-api = "claude_code_acp.api_proxy.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/yazelin/claude-code-acp-py"
@@ -45,6 +46,10 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-timeout>=2.2.0",
     "pytest-cov>=4.1.0",
+]
+api-proxy = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.30.0",
 ]
 
 [tool.pytest.ini_options]
